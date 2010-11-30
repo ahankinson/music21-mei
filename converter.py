@@ -13,7 +13,7 @@ lg = logging.getLogger('pymei')
 class ConverterMei(object):
     def __init__(self):
         self._meiDoc = None
-        self._stream = stream.Score()
+        self._score = stream.Score()
         
         self._staves = []
         self._layers = []
@@ -28,9 +28,19 @@ class ConverterMei(object):
         self._getMeasures()
         
         
+        
+        
+        
+        notes = self._meiDoc.search('note')
+        for note in notes:
+            lg.debug("Note measure parent is: {0}")
+            
+        
+        
     def _getMeasures(self):
         measures = self._meiDoc.search('measure')
         for measure in measures:
+            lg.debug("Measure ID: {0}".format(measure.id))
             m = stream.Measure()
             # set up a measure number.
             m.number = int(measure.attribute_by_name('n').value)
@@ -66,11 +76,16 @@ class ConverterMei(object):
                 m.rightBarline = b
             
             lg.debug("Music21 Measure! W00t!: {0}".format(m))
+            
             # we'll keep both an internal list of measures, as well as storing 
             # it in the actual score.
             self._measures.append(m)
-            self._stream.append(m)
-
+            
+            #### get parts
+            
+            
+            
+    
 if __name__ == "__main__":
     from optparse import OptionParser
     p = OptionParser()
@@ -80,7 +95,7 @@ if __name__ == "__main__":
     c = ConverterMei()
     c.parseFile(options.file)
     
-    c._stream.show('text')
+    c._score.show('text')
     
     
     
