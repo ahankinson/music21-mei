@@ -5,7 +5,8 @@ from music21 import stream
 from music21 import bar
 from music21 import meter
 from music21 import key
-
+from music21 import note
+from music21 import duration
 
 from music21.mei import translate
 
@@ -46,7 +47,15 @@ class ConverterMei(object):
         self._score_defs = []
         
         self._currentTimeSig = None # time signatures can change. This is the current one.
+        self._timeSigHasChanged = False # set this to true if we hit a tsig change
         self._currentKeySig = None # key sigs can change. This is the current one.
+        self._keySigHasChanged = False # set this to true if we hit a ksig change
+        
+        # This will be different for each voice. We may want to look for a better
+        # place to track this.
+        self._currentClef = None
+        self._clefHasChanged = False
+        
         self._staves = {} # {staffnum: <m21 staff object>}
         
         self.__flat_score = None # the flattened objects in the score.
@@ -100,14 +109,16 @@ class ConverterMei(object):
             'dynam',
             'slur',
             'hairpin',
+            'fermata',
+            'mordent'
         )
         
         # we don't need to encode sections, but having them sorted here makes it pretty
         # handy to work with them.
-        # for section in sections:
-        #     se = filter(lambda s: s.name in section_elements, flatten(section))
-        #     self._sections[section] = se
-        # lg.debug("Section elements: {0}".format(pprint.pprint(self._sections)))
+        for section in sections:
+            se = filter(lambda s: s.name in section_elements, flatten(section))
+            self._sections[section] = se
+        lg.debug("Section elements: {0}".format(pprint.pprint(self._sections)))
         
         # 
         # lg.debug("Staves: {0}".format(self._staves))
@@ -115,28 +126,92 @@ class ConverterMei(object):
     def _secondPass(self):
         # now we build the score.
         # Tonight, we dance!
+        #for section, elements in self._sections.iteritems():
         
-        # staves = filter(lambda s: s.getname() == "staff", self.__flat_score)
-        # for staff in staves:
-        #     snum = staff.attribute_by_name('n').value
-        #     if snum not in self._staves.keys():
-        #         st = stream.Staff()
-        #         sd = filter(lambda s: s.getname() == 'staffdef' and s.attribute_by_name('n').value == snum, 
-        #                         self._score_defs)[0]
-        #         
-        #         label = sd.attribute_by_name('label.full').value
-        #         self._staves[snum] = stream.Staff()
-        #         self._staves[snum].id = label
-        # 
-        # parts = filter(lambda p: p.getname() == "layer", self.__flat_score)
-        # lg.debug("Parts found: {0}".format(parts))
-        # for part in parts:
-        #     pnum = part.attribute_by_name('n').value
-        #     p_parent = part.parent.attribute_by_name('n').value # should be a staff id.
-        #     self._staves[p_parent].append(stream.Part())
-        pass
+        # test the note stuff
+        measures = self._meiDoc.search('measure')
+        for measure in measures:
+            n = self._createMeasure(measure)
+            lg.debug(n)
         
-
+            
+        #pass
+        
+    
+    def _createMeasure(self, measure_element):
+        m_measure = stream.Measure()
+        if measure_element.has_attribute('n') and measure_element.measure_number.isdigit():
+            m_measure.number = int(measure_element.measure_number)
+        
+        if measure_element.has_barline:
+            if not measure_element.is_repeat:
+                m_barline = bar.Barline()
+                m_barline.style = self._barlineConverter(measure_element.barline)
+            else:
+                m_barline = bar.Repeat()
+                m_barline.style = self._barlineConverter(measure_element.barline)
+                if measure_element.barline is "rptstart":
+                    m_barline.direction = "start"
+                elif measure_element.barline is "rptend":
+                    m_barline.direction = "end"
+            m_measure.rightBarline = m_barline
+        
+        # change triggers.
+        if self._timeSigHasChanged:
+            m_measure.timeSignatureIsNew = True
+            m_measure.timeSignature = self._currentTimeSig
+            self._timeSigHasChanged = False
+        
+        if self._keySigHasChanged:
+            m_measure.keyIsNew = True
+            m_measure.keySignature = self._currentKeySig
+            self._keySigHasChanged = False
+        
+        if self._clefHasChanged:
+            m_measure.clefIsNew = True
+            m_measure.clef = self._currentClef
+            self._clefHasChanged = False
+        
+        return m_measure
+    
+    def _createNote(self, note_element):
+        # create a new m21 note
+        m_note = note.Note(note_element.get_pitch_octave())
+        
+        if note_element.has_attribute('dur'):
+            # so many duration notations!
+            normalized_duration = duration.typeFromNumDict[int(note_element.duration)]
+            m_note.duration = duration.Duration(normalized_duration)
+            if note_element.is_dotted:
+                m_note.duration.dots = int(note_element.dots)
+        return m_note
+    
+    def _barlineConverter(self, barline):
+        """ 
+            Converts a MEI barline representation into a Music21 and thus a 
+            MusicXML barline representation.
+        """
+        barline_dict = {
+            'dashed': 'dashed',
+            'dotted': 'dotted',
+            'dbl': 'light-light',
+            'dbldashed': '',
+            'dbldotted': '',
+            'end': 'light-heavy',
+            'invis': 'none',
+            'rptstart': 'heavy-light',
+            'rptboth': '',
+            'rptend': 'light-heavy',
+            'single': ''
+        }
+        if barline in barline_dict.keys():
+            return barline_dict[barline]
+        else:
+            # should this return empty, or raise an exception? Inquiring minds
+            # want to know!
+            return ''
+        
+    
     def _keysigConverter(self, mei_ksig):
         """ 
             Converts a MEI key signature (e.g. 4f, 5s) to absolute circle-of-fifths 
