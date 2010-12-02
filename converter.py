@@ -7,30 +7,22 @@ from music21 import meter
 from music21 import key
 from music21 import note
 from music21 import duration
-
-from music21.mei import translate
+from music21 import spanner
 
 import logging
 import pprint
 lg = logging.getLogger('pymei')
 """
     Score -> stream.Score():
-        Staves -> stream.Staff():
-            Parts -> stream.Part():
-                Measures -> stream.Measure():
-                    Notes -> note.Note()
-                    Rests -> note.Rest()
-                    Dynamics -> dynamics.Dynamic()
+        Staff Group -> spanner.StaffGroup()
+            Staves -> spanner.Staff():
+                Parts -> stream.Part():
+                    Measures -> stream.Measure():
+                        Notes -> note.Note()
+                        Rests -> note.Rest()
+                        Dynamics -> dynamics.Dynamic()
 
 """
-
-
-# class Staff(stream.Stream):
-#     """ This is going to be implemented in m21. We'll just put it here for  
-#         now.
-#     """
-#     pass
-
 
 
 class ConverterMeiError(Exception):
@@ -66,9 +58,9 @@ class ConverterMei(object):
         self._firstPass()
         self._secondPass()
         
-        self._score.append(self._staves.values())
+        #self._score.append(self._staves.values())
         
-        self._score.show('text')
+        #self._score.show('text')
         pass
     
     def _firstPass(self):
@@ -80,7 +72,9 @@ class ConverterMei(object):
         self.__flat_score = flatten(self._meiDoc.search('score')[0])
         score_elements = (
             'scoredef',
-            'staffdef'
+            'staffdef',
+            'layerdef',
+            'instrdef',
         )
         self._score_defs = filter(lambda s: s.name in score_elements, self.__flat_score)
         lg.debug("Score Definitions: ".format(pprint.pprint(self._score_defs)))
@@ -124,18 +118,47 @@ class ConverterMei(object):
         # lg.debug("Staves: {0}".format(self._staves))
         
     def _secondPass(self):
-        # now we build the score.
-        # Tonight, we dance!
-        #for section, elements in self._sections.iteritems():
+        # this is where it goes all squirrely. In MEI, measures are parents of voices
+        # in Music21, parts are parents of measures. This simple fact keeps me up at night.
         
-        # test the note stuff
-        measures = self._meiDoc.search('measure')
-        for measure in measures:
-            n = self._createMeasure(measure)
-            lg.debug(n)
+        # 1. Get staff definitions, if they exist.
         
-            
-        #pass
+        # 2. Something.
+        
+        # 3. Once we have all the staves identified, find out, for each one, how many
+        #  voices ("layers") they have.
+        
+        # 4. If the staff already has a part defined with the same ID, that's OK; otherwise
+        #  add a new voice ("part") to the staff.
+        
+        # 5. Now we can parse the sections. Get the section stuff that we parsed earlier
+        #  and iterate through them.
+        
+        # 6. In this section, see if we have a scoredef as the first element. If so, trigger some
+        #  of the state changes if we do so we can apply that to the measure creation.
+        
+        # 7. For all the layers in this section, grab the previously defined part on this staff
+        #  in this MEI measure.
+        
+        # 8. Add the notes to the measure.
+        
+        # 9. Add the measure to the part
+        
+        # 10. Add the part to the staff (?)
+        
+        # 11. Add the staff to the staff group
+        
+        # 12. Add the staff group to the score.
+        pass
+    
+    def _thirdPass(self):
+        # This goes through and looks for "spanner" elements like slurs, ties, triplets,
+        # etc. When it finds one, it adds it to the appropriate element.
+        pass
+    
+    
+    def _calculateParts(self, section):
+        # we need to find out how many parts are in this section.
         
     
     def _createMeasure(self, measure_element):
