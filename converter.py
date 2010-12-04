@@ -8,6 +8,10 @@ from music21 import key
 from music21 import note
 from music21 import duration
 from music21 import spanner
+from music21 import chord
+from music21 import beam
+from music21 import dynamics
+from music21 import expressions
 
 import logging
 import pprint
@@ -36,6 +40,8 @@ class ConverterMei(object):
         self._meiDoc = None
         self._score = stream.Score()
         self._sections = {}
+        self._object_registry = {}
+        
         
         self._currentTimeSig = None # time signatures can change. This is the current one.
         self._timeSigHasChanged = False # set this to true if we hit a tsig change
@@ -73,6 +79,46 @@ class ConverterMei(object):
         # as a lookup for a part. If that does not exist, a new part is created.
         
         #==== object registry
+        self.__flat_score = flatten(self._meiDoc.search('music')[0])
+        
+        elements_to_convert = (
+            'note',
+            'measure',
+            'chord',
+            'fermata',
+            'beam',
+            'rest',
+            'mrest',
+            'slur',
+            'tie',
+            'trill',
+            'hairpin',
+        )
+        m_obj = filter(lambda c: c.name in elements_to_convert, self.__flat_score)
+        
+        for el in m_obj:
+            if el.name == 'note':
+                self._object_registry[el.id] = self._createNote(el)
+            elif el.name == 'measure':
+                self._object_registry[el.id] = self._createMeasure(el)
+            elif el.name == 'chord':
+                self._object_registry[el.id] = self._createChord(el)
+            elif el.name == 'fermata':
+                self._object_registry[el.id] = self._createFermata(el)
+            elif el.name == 'beam':
+                self._object_registry[el.id] = self._createBeam(el)
+            elif el.name in ('rest', 'mrest'):
+                self._object_registry[el.id] = self._createRest(el)
+            elif el.name == 'slur':
+                self._object_registry[el.id] = self._createSlur(el)
+            elif el.name == 'tie':
+                self._object_registry[el.id] = self._createTie(el)
+            elif el.name == 'trill':
+                self._object_registry[el.id] = self._createTrill(el)
+            elif el.name == 'hairpin':
+                self._object_registry[el.id] = self._createHairpin(el)
+            
+        lg.debug("Object registry: {0}".format(pprint.pprint(self._object_registry)))
         
         
         #==== staff-part registry =====
@@ -87,13 +133,7 @@ class ConverterMei(object):
                 
                 for layer in layers:
                     laynum = layer.attribute_by_name('n').value
-                    pid = "{0}-{1}".format(staffnum, laynum)
-                    
-                    # sometimes we may have more than one definition of 
-                    # a part in a section. This occurs if there are different
-                    # readings. For now, we'll be naive and assume that we won't be
-                    # parsing that type of riffraff, but we'll check our backs anyway,
-                    # lest we get a key collision that could change the entire course of humanity.
+                    pid = "{0}-{1}".format(staffnum, laynum)                    
                     if pid not in self._sections[secnum].keys():
                         self._sections[secnum][pid] = stream.Part()
                         
@@ -113,6 +153,42 @@ class ConverterMei(object):
         sn = obj.ancestor_by_name('staff').attribute_by_name('n').value
         ln = obj.ancestor_by_name('layer').attribute_by_name('n').value
         pid = "s{0}-l{1}".format(sn, ln)
+    
+    def _createBeam(self, beam_element):
+        m_beam = beam.Beam()
+        # see the music21 beams documentation. This will need to be adjusted
+        # to work with "Beams," by getting all the sub-notes and adding them. 
+        # But we'll keep it like this for now.
+        return m_beam
+    
+    def _createChord(self, chord_element):
+        m_chord = chord.Chord()
+        # other stuff.
+        return m_chord
+    
+    def _createRest(self, rest_element):
+        m_rest = note.Rest()
+        return m_rest
+    
+    def _createSlur(self, slur_element):
+        m_slur = spanner.Slur()
+        return m_slur
+    
+    def _createHairpin(self, hairpin_element):
+        m_hairpin = dynamics.Wedge()
+        return m_hairpin
+    
+    def _createFermata(self, fermata_element):
+        m_fermata = expressions.Fermata()
+        return m_fermata
+    
+    def _createTrill(self, trill_element):
+        m_trill = expressions.Trill()
+        return m_trill
+        
+    def _createTie(self, tie_element):
+        m_tie = tie.Tie()
+        return m_tie
     
     def _createMeasure(self, measure_element):
         m_measure = stream.Measure()
