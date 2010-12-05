@@ -1,4 +1,7 @@
 """ Designed to be plugged into the Music21 converter system. """
+import cProfile
+import types
+
 from pymei.Import import convert
 from pymei.Helpers import flatten
 from music21 import stream
@@ -12,6 +15,7 @@ from music21 import chord
 from music21 import beam
 from music21 import dynamics
 from music21 import expressions
+from music21 import tie
 
 import logging
 import pprint
@@ -61,6 +65,7 @@ class ConverterMei(object):
     def parseFile(self, fn):
         self._meiDoc = convert(fn)
         self._createRegistries()
+        self._secondPass()
         
         #self._score.append(self._staves.values())
         
@@ -78,24 +83,35 @@ class ConverterMei(object):
         # where secid-sid-lid is the section number, staff number and layer number used
         # as a lookup for a part. If that does not exist, a new part is created.
         
-        #==== object registry
-        self.__flat_score = flatten(self._meiDoc.search('music')[0])
+        # register all objects in a flat list.
+        m = self._meiDoc.search('music')
+        self.__flat_score = flatten(tuple(m)[0])
         
+        #==== object registry
+        # elements_to_convert = (
+        #             'note',
+        #             'measure',
+        #             'chord',
+        #             'fermata',
+        #             'beam',
+        #             'rest',
+        #             'mrest',
+        #             'slur',
+        #             'trill',
+        #             'hairpin',
+        #             'tupletspan',
+        #             'dynam'
+        #         )
+        
+        # keep it simple:
         elements_to_convert = (
             'note',
             'measure',
             'chord',
-            'fermata',
             'beam',
-            'rest',
-            'mrest',
-            'slur',
-            'tie',
-            'trill',
-            'hairpin',
+            'rest'
         )
-        m_obj = filter(lambda c: c.name in elements_to_convert, self.__flat_score)
-        
+        m_obj = (c for c in self.__flat_score if c.name in elements_to_convert)
         for el in m_obj:
             if el.name == 'note':
                 self._object_registry[el.id] = self._createNote(el)
@@ -111,14 +127,12 @@ class ConverterMei(object):
                 self._object_registry[el.id] = self._createRest(el)
             elif el.name == 'slur':
                 self._object_registry[el.id] = self._createSlur(el)
-            elif el.name == 'tie':
-                self._object_registry[el.id] = self._createTie(el)
             elif el.name == 'trill':
                 self._object_registry[el.id] = self._createTrill(el)
             elif el.name == 'hairpin':
                 self._object_registry[el.id] = self._createHairpin(el)
             
-        lg.debug("Object registry: {0}".format(pprint.pprint(self._object_registry)))
+        # lg.debug("Object registry: {0}".format(pprint.pprint(self._object_registry)))
         
         
         #==== staff-part registry =====
@@ -137,6 +151,28 @@ class ConverterMei(object):
                     if pid not in self._sections[secnum].keys():
                         self._sections[secnum][pid] = stream.Part()
                         
+    
+    def _secondPass(self):
+        # once we have the registries created we can go through and assemble
+        # the score. We'll do this element-by-element; that way we can control
+        # how it gets assembled.
+        def __sp(el):
+            if el.id in self._object_registry.keys():
+                m21_obj = self._object_registry[el.id]
+                if el.children:
+                    crn = [__sp(c) for c in el.children if not isinstance(__sp(c), types.NoneType)]
+                    lg.debug("Append to: {0} children {1}".format(m21_obj, crn))
+                    
+                return m21_obj
+                # m21_obj.append(crn)
+        
+        
+        
+        for element in self.__flat_score:
+            if element.id in self._object_registry.keys():
+                __sp(element)
+            
+    
     def _thirdPass(self):
         # This goes through and looks for "spanner" elements like slurs, ties, triplets,
         # etc. When it finds one, it adds it to the appropriate element.
@@ -168,6 +204,16 @@ class ConverterMei(object):
     
     def _createRest(self, rest_element):
         m_rest = note.Rest()
+        
+        # this one's tricky. We have both 'rests', which are rests in the
+        # traditional sense, but also 'mrests,' which are entire measure
+        # rests. Since we don't really know the duration of the mrest (b/c
+        # it depends on the measure context), we'll need to set that later
+        # when the rest is being placed in the measure. For now, though,
+        # we'll deal with the simple case.
+        if rest_element.has_attribute('dur'):
+            normalized_duration = self._durationConverter(rest_element.duration)
+            m_rest.duration = duration.Duration(normalized_duration)
         return m_rest
     
     def _createSlur(self, slur_element):
@@ -185,10 +231,11 @@ class ConverterMei(object):
     def _createTrill(self, trill_element):
         m_trill = expressions.Trill()
         return m_trill
-        
-    def _createTie(self, tie_element):
-        m_tie = tie.Tie()
-        return m_tie
+    
+    # This isn't that important right now.
+    # def _createTie(self, tie_element):
+    #     m_tie = tie.Tie()
+    #     return m_tie
     
     def _createMeasure(self, measure_element):
         m_measure = stream.Measure()
@@ -209,20 +256,24 @@ class ConverterMei(object):
             m_measure.rightBarline = m_barline
         
         # change triggers.
-        if self._timeSigHasChanged:
-            m_measure.timeSignatureIsNew = True
-            m_measure.timeSignature = self._currentTimeSig
-            self._timeSigHasChanged = False
-        
-        if self._keySigHasChanged:
-            m_measure.keyIsNew = True
-            m_measure.keySignature = self._currentKeySig
-            self._keySigHasChanged = False
-        
-        if self._clefHasChanged:
-            m_measure.clefIsNew = True
-            m_measure.clef = self._currentClef
-            self._clefHasChanged = False
+        # we'll move these to where we actually parse the music,
+        # since we'll have a better idea of what context the measure
+        # is in then.
+        #
+        # if self._timeSigHasChanged:
+        #     m_measure.timeSignatureIsNew = True
+        #     m_measure.timeSignature = self._currentTimeSig
+        #     self._timeSigHasChanged = False
+        # 
+        # if self._keySigHasChanged:
+        #     m_measure.keyIsNew = True
+        #     m_measure.keySignature = self._currentKeySig
+        #     self._keySigHasChanged = False
+        # 
+        # if self._clefHasChanged:
+        #     m_measure.clefIsNew = True
+        #     m_measure.clef = self._currentClef
+        #     self._clefHasChanged = False
         
         return m_measure
     
@@ -230,14 +281,32 @@ class ConverterMei(object):
         # create a new m21 note
         m_note = note.Note(note_element.get_pitch_octave())
         
-        if note_element.has_attribute('dur'):
-            # so many duration notations!
-            normalized_duration = duration.typeFromNumDict[int(note_element.duration)]
+        if note_element.duration:
+            normalized_duration = self._durationConverter(note_element.duration)
             m_note.duration = duration.Duration(normalized_duration)
             if note_element.is_dotted:
                 m_note.duration.dots = int(note_element.dots)
+        
+        if note_element.tie:
+            # there is no such thing as a medial tie in m21 (yet).
+            # we'll define the medial as another start.
+            tie_translate = {'i': 'start', 'm':'start', 't': 'end'}
+            m_note.tie = tie.Tie(tie_translate[note_element.tie])
+            
         return m_note
     
+    def _durationConverter(self, d):
+        # helper function to deal with the various duration notations.
+        # MEI only has integer durations and a restricted set of acceptable
+        # text durations.
+        if d.isdigit():
+            return duration.typeFromNumDict[int(d)]
+        elif d in ('maxima', 'long', 'longa', 'breve', 'brevis', 
+                    'semibrevis', 'minima', 'semiminima', 'fusa', 'semifusa'):
+            return duration.typeToDuration[d]
+        else:
+            raise TypeError("Invalid duration {0} .".format(d))
+        
     def _barlineConverter(self, barline):
         """ 
             Converts a MEI barline representation into a Music21 and thus a 
@@ -286,5 +355,6 @@ if __name__ == "__main__":
     (options,args) = p.parse_args()
 
     c = ConverterMei()
+    # cProfile.run('c.parseFile(options.file)')
     c.parseFile(options.file)
-    c._score.show('text')
+    # c._score.show('text')
