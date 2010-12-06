@@ -292,6 +292,24 @@ class ConverterMei(object):
             # we'll define the medial as another start.
             tie_translate = {'i': 'start', 'm':'start', 't': 'end'}
             m_note.tie = tie.Tie(tie_translate[note_element.tie])
+        
+        if note_element.articulation:
+            # deal with note articulations.
+            pass
+        
+        if note_element.children:
+            # deal with some elements that may be defined as children and not
+            # as attributes.
+            for c in note_element.children:
+                if c.name is "accid":
+                    # note accidental
+                    pass
+                elif c.name is "dot":
+                    # note dot
+                    pass
+                elif c.name is "artic":
+                    # note articulation
+                    pass
             
         return m_note
     

@@ -115,6 +115,19 @@ class ConverterMei(object):
             #### get parts
             
             
+articulations = [t for t in self.attributes if t.name == "artic"]
+if len(articulations) > 0 and articulations[0].value not in self.__articulations:
+    self.__articulations.append(articulations[0].value)
+
+if self.has_child('artic'):
+    # we can also have child elements that are articulations.
+    a_crn = self.children_by_name('artic')
+    articulations = [a.articulation for a in a_crn]
+    self.__articulations.extend(articulations)
+
+if len(self.__articulations) == 0:
+    self.remove_attribute('artic')
+    self.__articulations = []
         
         
         
@@ -129,6 +142,33 @@ if __name__ == "__main__":
     c.parseFile(options.file)
     c._score.show('text')
     
+    
+
+
+    crn = []
+    # the only way to be sure is to completely 
+    # recreate all the children. Not efficient, but safe.
+    self.remove_children('artic')
+    lg.debug("Length of children: {0}".format(len(self.children)))
+    for v in self.__articulations:
+        c = artic_()
+        c.id = uuid.uuid4() # should this be moved elsewhere?
+        c.attributes = {'artic': v}
+        crn.append(c)
+    self.addchildren(crn, self) # passing in self means we can refer to this parent from the child.
+    if self.has_attribute('artic'):
+        self.remove_attribute('artic')
+        
+self.attributes = {'artic': self.__articulations[0]}
+if self.has_child('artic'):
+    lg.debug('removing child.')
+    self.remove_children('artic')
+
+    self.__articulations = []
+    self.remove_attribute('artic')
+    self.remove_children('artic')
+
+
     
     
     
