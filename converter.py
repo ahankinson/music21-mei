@@ -49,6 +49,7 @@ class ConverterMei(object):
         self._voices_rel_measures = {} # {v1: [m1, m2, m3, m4], v2: [m1, m2, m3, m4]}
         
         self.__flat_score = None
+        self.__processed_elements = {} # {id: <M21 Element>}
         
         self._num_measures = None
         self._num_sections = None
@@ -85,20 +86,23 @@ class ConverterMei(object):
         
         score_iter = copy.copy(self.__flat_score)
         
-        for el in score_iter:
-            if el.name in self._registry.keys():
-                # deal with it
-                lg.debug("Dealing with: {0}".format(el.name))
-                self._trigger_registry(el)
-                
+        for idx,el in enumerate(score_iter):
+            if el not in self.__processed_elements:
+                if el.name in self._registry.keys():
+                    # deal with it
+                    lg.debug("Dealing with: {0}".format(el.name))
+                    m21 = self._trigger_registry(el)
+                    
+                    lg.debug("----> Adding {0} to processed elements".format(el.id))
+            else:
+                lg.debug("<----- Skipping {0} because it was already processed".format(el))
             # else:
             #     lg.debug("Removing: {0}".format(el.name))
             #     self.__flat_score.remove(el)
                 
         
-        lg.debug("Leftovers: {0}".format(self.__flat_score))
-        
-        pass
+        #lg.debug("Leftovers: {0}".format(self.__flat_score))
+        lg.debug("Processed elements: {0}".format(self.__processed_elements))
     
     def _trigger_registry(self, element):
         # this method acts as a registry for what to do when
@@ -141,19 +145,40 @@ class ConverterMei(object):
                 if child.name == 'accid':
                     lg.debug("=======>Adding Accidental {0}".format(child.attribute_by_name('accid').value))
                     # self.__flat_score.remove(child)
+                    self.__processed_elements.append(child)
                 elif child.name == 'verse':
                     lg.debug("Processing verse!")
                     vs = self._trigger_registry(child)
+                    self.__processed_elements.append(child)
                 else:
                     lg.debug("Don't know what to do with {0}".format(child.name))
         
+        lg.debug("Returning a note: {0}".format(mei_element.id))
+        self.__processed_elements.append(mei_element)
         return m_note
                 
         
         
     def _create_measure(self, mei_element):
-        lg.debug("Creating measure: {0}".format(mei_element.id))
-        pass
+        m_measure = stream.Measure()
+        if mei_element.has_attribute('n') and mei_element.measure_number.isdigit():
+            m_measure.number = int(mei_element.measure_number)
+        
+        if mei_element.has_barline:
+            if not mei_element.is_repeat:
+                m_barline = bar.Barline()
+                m_barline.style = self._barlineConverter(mei_element.barline)
+            else:
+                m_barline = bar.Repeat()
+                m_barline.style = self._barlineConverter(mei_element.barline)
+                if mei_element.barline is "rptstart":
+                    m_barline.direction = "start"
+                elif mei_element.barline is "rptend":
+                    m_barline.direction = "end"
+            m_measure.rightBarline = m_barline
+        
+        lg.debug("Returning a measure. {0}".format(mei_element.id))
+        return m_measure
     
     def _create_rest(self, mei_element):
         lg.debug("Creating rest: {0}".format(mei_element.id))
@@ -200,6 +225,8 @@ class ConverterMei(object):
                     lg.debug("Processing the syllable {0}".format(child.id))
                     lg.debug("Is the child present? {0}".format(child in self.__flat_score))
                     # self.__flat_score.remove(child)
+                    self.__processed_elements.append(child)
+        self.__processed_elements.append(mei_element)
 
 
 
