@@ -1,7 +1,3 @@
-""" Designed to be plugged into the Music21 converter system. """
-import cProfile
-import types
-
 from pymei.Import import convert
 from pymei.Helpers import flatten
 from music21 import stream
@@ -19,19 +15,8 @@ from music21 import tie
 
 import logging
 import pprint
+import copy
 lg = logging.getLogger('pymei')
-"""
-    Score -> stream.Score():
-        Staff Group -> spanner.StaffGroup()
-            Staves -> spanner.Staff():
-                Parts -> stream.Part():
-                    Measures -> stream.Measure():
-                        Notes -> note.Note()
-                        Rests -> note.Rest()
-                        Dynamics -> dynamics.Dynamic()
-
-"""
-
 
 class ConverterMeiError(Exception):
     def __init__(self, message):
@@ -40,279 +25,184 @@ class ConverterMeiError(Exception):
         return repr(self.message)
 
 class ConverterMei(object):
+    # =======================
+    # Parse order:
+    #   1. Score definitions
+    #   2. Staff definitions
+    #   3. Layer definitions
+    #   4. Sections
+    #   5. (Score definitions in sections)
+    #   6. Measures
+    #   7. Staves
+    #   8. Layers
+    #   9. "Notation Elements":
+    #       a. 
+    #
+    
     def __init__(self):
         self._meiDoc = None
+        
         self._score = stream.Score()
-        self._sections = {}
-        self._object_registry = {}
+        
+        # registries
+        self._staff_rel_voices = {} # {s1: [v1, v2], s2:[v1]}, etc.
+        self._voices_rel_measures = {} # {v1: [m1, m2, m3, m4], v2: [m1, m2, m3, m4]}
+        
+        self.__flat_score = None
+        
+        self._num_measures = None
+        self._num_sections = None
+        self._num_voices = None
+        self._num_staves = None
+        
+        self._registry = {
+            'note': self._create_note,
+            'measure': self._create_measure,
+            'rest': self._create_rest,
+            'mrest': self._create_rest,
+            'chord': self._create_chord,
+            'beam': self._create_beam,
+            'staff': self._create_staff,
+            'layer': self._create_voice,
+            'scoredef': self._create_scoredef,
+            'staffgrp': self._create_staffgrp,
+            'staffdef': self._create_staffdef,
+            'layerdef': self._create_layerdef,
+            'verse': self._create_verse,
+        }
         
         
-        self._currentTimeSig = None # time signatures can change. This is the current one.
-        self._timeSigHasChanged = False # set this to true if we hit a tsig change
-        self._currentKeySig = None # key sigs can change. This is the current one.
-        self._keySigHasChanged = False # set this to true if we hit a ksig change
-        
-        # This will be different for each voice. We may want to look for a better
-        # place to track this.
-        self._currentClef = None
-        self._clefHasChanged = False
-        
-        self._parts = {} # {sid-nid: <m21 Part>}
-        
-        self.__flat_score = None # the flattened objects in the score.
-        
-    
     def parseFile(self, fn):
         self._meiDoc = convert(fn)
-        self._createRegistries()
-        self._secondPass()
-        
-        #self._score.append(self._staves.values())
-        
-        #self._score.show('text')
+        self._parse_score()
         pass
-    
-    def _createRegistries(self):
-        # creates a couple registries for lookups.
-        # object-registry:
-        #  { element.id: <Music21 Object> }
-        #  where element.id is the XML/MEI xml:id, and the corresponding Music21 object.
-        #
-        # staff-part registry:
-        #  {secnum-sid-lid: <Music21 Part> }
-        # where secid-sid-lid is the section number, staff number and layer number used
-        # as a lookup for a part. If that does not exist, a new part is created.
         
-        # register all objects in a flat list.
+    # =======================
+    def _parse_score(self):
+        
         m = self._meiDoc.search('music')
-        self.__flat_score = flatten(tuple(m)[0])
+        self.__flat_score = list(flatten(m[0]))
         
-        #==== object registry
-        # elements_to_convert = (
-        #             'note',
-        #             'measure',
-        #             'chord',
-        #             'fermata',
-        #             'beam',
-        #             'rest',
-        #             'mrest',
-        #             'slur',
-        #             'trill',
-        #             'hairpin',
-        #             'tupletspan',
-        #             'dynam'
-        #         )
+        score_iter = copy.copy(self.__flat_score)
         
-        # keep it simple:
-        elements_to_convert = (
-            'note',
-            'measure',
-            'chord',
-            'beam',
-            'rest'
-        )
-        m_obj = (c for c in self.__flat_score if c.name in elements_to_convert)
-        for el in m_obj:
-            if el.name == 'note':
-                self._object_registry[el.id] = self._createNote(el)
-            elif el.name == 'measure':
-                self._object_registry[el.id] = self._createMeasure(el)
-            elif el.name == 'chord':
-                self._object_registry[el.id] = self._createChord(el)
-            elif el.name == 'fermata':
-                self._object_registry[el.id] = self._createFermata(el)
-            elif el.name == 'beam':
-                self._object_registry[el.id] = self._createBeam(el)
-            elif el.name in ('rest', 'mrest'):
-                self._object_registry[el.id] = self._createRest(el)
-            elif el.name == 'slur':
-                self._object_registry[el.id] = self._createSlur(el)
-            elif el.name == 'trill':
-                self._object_registry[el.id] = self._createTrill(el)
-            elif el.name == 'hairpin':
-                self._object_registry[el.id] = self._createHairpin(el)
-            
-        # lg.debug("Object registry: {0}".format(pprint.pprint(self._object_registry)))
-        
-        
-        #==== staff-part registry =====
-        sections = self._meiDoc.search('section')
-        for secnum, section in enumerate(sections):
-            staves = section.descendents_by_name('staff')
-            self._sections[secnum] = {}
-            
-            for staff in staves:
-                staffnum = staff.attribute_by_name('n').value
-                layers = staff.descendents_by_name('layer')
+        for el in score_iter:
+            if el.name in self._registry.keys():
+                # deal with it
+                lg.debug("Dealing with: {0}".format(el.name))
+                self._trigger_registry(el)
                 
-                for layer in layers:
-                    laynum = layer.attribute_by_name('n').value
-                    pid = "{0}-{1}".format(staffnum, laynum)                    
-                    if pid not in self._sections[secnum].keys():
-                        self._sections[secnum][pid] = stream.Part()
-                        
-    
-    def _secondPass(self):
-        # once we have the registries created we can go through and assemble
-        # the score. We'll do this element-by-element; that way we can control
-        # how it gets assembled.
-        def __sp(el):
-            if el.id in self._object_registry.keys():
-                m21_obj = self._object_registry[el.id]
-                if el.children:
-                    crn = [__sp(c) for c in el.children if not isinstance(__sp(c), types.NoneType)]
-                    lg.debug("Append to: {0} children {1}".format(m21_obj, crn))
-                    
-                return m21_obj
-                # m21_obj.append(crn)
+            # else:
+            #     lg.debug("Removing: {0}".format(el.name))
+            #     self.__flat_score.remove(el)
+                
         
+        lg.debug("Leftovers: {0}".format(self.__flat_score))
         
-        
-        for element in self.__flat_score:
-            if element.id in self._object_registry.keys():
-                __sp(element)
-            
-    
-    def _thirdPass(self):
-        # This goes through and looks for "spanner" elements like slurs, ties, triplets,
-        # etc. When it finds one, it adds it to the appropriate element.
         pass
     
-    
-    
-    
-    def _calculatePart(self, obj):
-        # given an object (note, rest, etc.), calculates the part lookup for the staff-part
-        # registry lookup.
-        # this helps determine which part this object belongs to.
-        sn, ln = None
-        sn = obj.ancestor_by_name('staff').attribute_by_name('n').value
-        ln = obj.ancestor_by_name('layer').attribute_by_name('n').value
-        pid = "s{0}-l{1}".format(sn, ln)
-    
-    def _createBeam(self, beam_element):
-        m_beam = beam.Beam()
-        # see the music21 beams documentation. This will need to be adjusted
-        # to work with "Beams," by getting all the sub-notes and adding them. 
-        # But we'll keep it like this for now.
-        return m_beam
-    
-    def _createChord(self, chord_element):
-        m_chord = chord.Chord()
-        # other stuff.
-        return m_chord
-    
-    def _createRest(self, rest_element):
-        m_rest = note.Rest()
-        
-        # this one's tricky. We have both 'rests', which are rests in the
-        # traditional sense, but also 'mrests,' which are entire measure
-        # rests. Since we don't really know the duration of the mrest (b/c
-        # it depends on the measure context), we'll need to set that later
-        # when the rest is being placed in the measure. For now, though,
-        # we'll deal with the simple case.
-        if rest_element.has_attribute('dur'):
-            normalized_duration = self._durationConverter(rest_element.duration)
-            m_rest.duration = duration.Duration(normalized_duration)
-        return m_rest
-    
-    def _createSlur(self, slur_element):
-        m_slur = spanner.Slur()
-        return m_slur
-    
-    def _createHairpin(self, hairpin_element):
-        m_hairpin = dynamics.Wedge()
-        return m_hairpin
-    
-    def _createFermata(self, fermata_element):
-        m_fermata = expressions.Fermata()
-        return m_fermata
-    
-    def _createTrill(self, trill_element):
-        m_trill = expressions.Trill()
-        return m_trill
-    
-    # This isn't that important right now.
-    # def _createTie(self, tie_element):
-    #     m_tie = tie.Tie()
-    #     return m_tie
-    
-    def _createMeasure(self, measure_element):
-        m_measure = stream.Measure()
-        if measure_element.has_attribute('n') and measure_element.measure_number.isdigit():
-            m_measure.number = int(measure_element.measure_number)
-        
-        if measure_element.has_barline:
-            if not measure_element.is_repeat:
-                m_barline = bar.Barline()
-                m_barline.style = self._barlineConverter(measure_element.barline)
-            else:
-                m_barline = bar.Repeat()
-                m_barline.style = self._barlineConverter(measure_element.barline)
-                if measure_element.barline is "rptstart":
-                    m_barline.direction = "start"
-                elif measure_element.barline is "rptend":
-                    m_barline.direction = "end"
-            m_measure.rightBarline = m_barline
-        
-        # change triggers.
-        # we'll move these to where we actually parse the music,
-        # since we'll have a better idea of what context the measure
-        # is in then.
-        #
-        # if self._timeSigHasChanged:
-        #     m_measure.timeSignatureIsNew = True
-        #     m_measure.timeSignature = self._currentTimeSig
-        #     self._timeSigHasChanged = False
+    def _trigger_registry(self, element):
+        # this method acts as a registry for what to do when
+        # an element is encountered. It takes an element as its argument
+        # and maps that argument to a method for handling that type of element.
         # 
-        # if self._keySigHasChanged:
-        #     m_measure.keyIsNew = True
-        #     m_measure.keySignature = self._currentKeySig
-        #     self._keySigHasChanged = False
-        # 
-        # if self._clefHasChanged:
-        #     m_measure.clefIsNew = True
-        #     m_measure.clef = self._currentClef
-        #     self._clefHasChanged = False
+        # Since elements can exist in many contexts, this was the easiest way
+        # to map an element to the appropriate processing instructions.
+        if element.name in self._registry.keys():
+            m21_obj = self._registry[element.name](element)
+            return m21_obj
+        else:
+            lg.debug("Skipping {0}".format(element.name))
+            return None
         
-        return m_measure
     
-    def _createNote(self, note_element):
-        # create a new m21 note
-        m_note = note.Note(note_element.get_pitch_octave())
+    def _create_note(self, mei_element):
+        lg.debug("Creating note: {0}".format(mei_element.id))
+        m_note = note.Note(mei_element.get_pitch_octave())
         
-        if note_element.duration:
-            normalized_duration = self._durationConverter(note_element.duration)
+        if mei_element.duration:
+            normalized_duration = self._durationConverter(mei_element.duration)
             m_note.duration = duration.Duration(normalized_duration)
-            if note_element.is_dotted:
-                m_note.duration.dots = int(note_element.dots)
+            if mei_element.is_dotted:
+                m_note.duration.dots = int(mei_element.dots)
         
-        if note_element.tie:
+        if mei_element.tie:
             # there is no such thing as a medial tie in m21 (yet).
             # we'll define the medial as another start.
             tie_translate = {'i': 'start', 'm':'start', 't': 'end'}
-            m_note.tie = tie.Tie(tie_translate[note_element.tie])
+            m_note.tie = tie.Tie(tie_translate[mei_element.tie])
         
-        if note_element.articulation:
+        if mei_element.articulations:
             # deal with note articulations.
             pass
+
+        if mei_element.children:
+            for child in mei_element.children:
+                lg.debug("====>Note Child: {0}".format(child.name))
+                if child.name == 'accid':
+                    lg.debug("=======>Adding Accidental {0}".format(child.attribute_by_name('accid').value))
+                    # self.__flat_score.remove(child)
+                elif child.name == 'verse':
+                    lg.debug("Processing verse!")
+                    vs = self._trigger_registry(child)
+                else:
+                    lg.debug("Don't know what to do with {0}".format(child.name))
         
-        if note_element.children:
-            # deal with some elements that may be defined as children and not
-            # as attributes.
-            for c in note_element.children:
-                if c.name is "accid":
-                    # note accidental
-                    pass
-                elif c.name is "dot":
-                    # note dot
-                    pass
-                elif c.name is "artic":
-                    # note articulation
-                    pass
-            
         return m_note
+                
+        
+        
+    def _create_measure(self, mei_element):
+        lg.debug("Creating measure: {0}".format(mei_element.id))
+        pass
     
+    def _create_rest(self, mei_element):
+        lg.debug("Creating rest: {0}".format(mei_element.id))
+        pass
+    
+    def _create_chord(self, mei_element):
+        lg.debug("Creating chord: {0}".format(mei_element.id))
+        pass
+    
+    def _create_beam(self, mei_element):
+        lg.debug("Creating beam: {0}".format(mei_element.id))
+        pass
+    
+    def _create_staff(self, mei_element):
+        lg.debug("Creating staff: {0}".format(mei_element.id))
+        pass
+    
+    def _create_voice(self, mei_element):
+        lg.debug("Creating voice: {0}".format(mei_element.id))
+        pass
+    
+    def _create_scoredef(self, mei_element):
+        lg.debug("Creating scoredef: {0}".format(mei_element.id))
+        pass
+    
+    def _create_staffgrp(self, mei_element):
+        lg.debug("Creating staffgrp: {0}".format(mei_element.id))
+        pass
+    
+    def _create_staffdef(self, mei_element):
+        lg.debug("Creating staffgrp: {0}".format(mei_element.id))
+        pass
+        
+    def _create_layerdef(self, mei_element):
+        lg.debug("Creating layerdef: {0}".format(mei_element.id))
+        pass
+        
+    def _create_verse(self, mei_element):
+        lg.debug("Creating Verse: {0}".format(mei_element.id))
+        
+        if mei_element.children:
+            for child in mei_element.children:
+                if child.name == 'syl':
+                    lg.debug("Processing the syllable {0}".format(child.id))
+                    lg.debug("Is the child present? {0}".format(child in self.__flat_score))
+                    # self.__flat_score.remove(child)
+
+
+
     def _durationConverter(self, d):
         # helper function to deal with the various duration notations.
         # MEI only has integer durations and a restricted set of acceptable
@@ -324,7 +214,7 @@ class ConverterMei(object):
             return duration.typeToDuration[d]
         else:
             raise TypeError("Invalid duration {0} .".format(d))
-        
+
     def _barlineConverter(self, barline):
         """ 
             Converts a MEI barline representation into a Music21 and thus a 
@@ -349,22 +239,6 @@ class ConverterMei(object):
             # should this return empty, or raise an exception? Inquiring minds
             # want to know!
             return ''
-        
-    
-    def _keysigConverter(self, mei_ksig):
-        """ 
-            Converts a MEI key signature (e.g. 4f, 5s) to absolute circle-of-fifths 
-            representation (-/+, e.g. -1 = 1f; +1 = 1s)
-        """
-        if not mei_ksig[0].isdigit():
-            raise ConverterMeiError("Only key signatures with the form <num><str> are supported, e.g. 0, 4f, 5s.")
-
-        if mei_ksig is "0":
-            return int(mei_ksig)
-        if mei_ksig.endswith("f"):
-            return -int(mei_ksig[0])
-        return int(mei_ksig[0])
-
 
 if __name__ == "__main__":
     from optparse import OptionParser
