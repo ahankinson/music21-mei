@@ -53,9 +53,27 @@ class ConverterMei(object):
             'staff': self._create_staffdef,
             'layer': self._create_voice,
         }
-
-
         
+        # This holds the a pointer to the music21 object for the contexts
+        # we encounter as we parse the file. 
+        # This will always hold the most "recent" element
+        # that we've encountered, so we can always refer to the context for 
+        # the element we need to work on.
+        
+        # this is useful if, for example, we want to look up what "key signature"
+        # context we're currently in, or clef, or measure, or chord, etc.
+        self._contexts = {
+            'section': None,
+            'staff': None,
+            'voice': None,
+            'note': None,
+            'chord': None,
+            'measure': None,
+            'key_sig': None,
+            'time_sig': None,
+            'clef': None,
+            'beam': None
+        }
     
     def parseFile(self, filename):
         """docstring for parseFile"""
@@ -92,7 +110,24 @@ class ConverterMei(object):
             map(self._parse_children, element.children)
     
     def _parse_structure(self, element):
-        pass
+        if element.name == "scoredef":
+            lg.debug("Setting a score definition context")
+            pass
+        elif element.name == "layer":
+            lg.debug("set the layer (voice) context")
+            pass
+        elif element.name == "staff":
+            lg.debug("setting a staff context")
+            pass
+        elif element.name == "chord":
+            lg.debug("Setting a chord context")
+            pass
+        elif element.name == "beam":
+            lg.debug("Setting a beam context")
+            pass    
+        if element.children:
+            map(self._parse_structure, element.children)
+        
     
     def _create_staffgrp(self, element):
         lg.debug("Creating staffgrp from {0}".format(element.id))
