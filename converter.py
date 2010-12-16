@@ -84,7 +84,7 @@ class ConverterMei(object):
         self._meiDoc = convert(filename)
         self._create_registries()
         #self._parse_children(self._meiDoc.gettoplevel())
-        
+        self._structure_work()
         lg.debug(self._registry)
     
     # ===============================
@@ -119,20 +119,23 @@ class ConverterMei(object):
     
     def _parse_structure(self, element):
         if element.name == "scoredef":
-            lg.debug("Setting a score definition context")
+            lg.debug(" ==> Setting a score definition context")
             pass
         elif element.name == "layer":
-            lg.debug("set the layer (voice) context")
+            lg.debug(" ==> set the layer (voice) context")
             pass
         elif element.name == "staff":
-            lg.debug("setting a staff context")
+            lg.debug(" ==> setting a staff context")
             pass
         elif element.name == "chord":
-            lg.debug("Setting a chord context")
+            lg.debug(" ==> Setting a chord context")
             pass
         elif element.name == "beam":
-            lg.debug("Setting a beam context")
-            pass    
+            lg.debug(" ==> Setting a beam context")
+            pass
+        elif element.name == "note"  :
+            lg.debug(" ==> Setting a note context ")
+            pass
         if element.children:
             map(self._parse_structure, element.children)
     
