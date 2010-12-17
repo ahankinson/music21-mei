@@ -41,7 +41,8 @@ class ConverterMei(object):
         self._score = stream.Score()
         self._staff_registry = {}
         self._voice_registry = {}
-        self._registry = [] # {id: <m21_obj>}
+        self._measure_registry = {}
+        self._registry = {} # {id: <m21_obj>}
         
         # these objects have direct mappings from MEI to M21 elements.
         # Thus than can easily be converted and stored for later.
@@ -50,6 +51,7 @@ class ConverterMei(object):
             'rest': self._create_rest,
             'slur': self._create_slur,
             'chord': self._create_chord,
+            'beam': self._create_beam,
             'mrest': self._create_rest,
             'staffgrp': self._create_staffgrp,
             'staffdef': self._create_staffdef,
@@ -76,7 +78,10 @@ class ConverterMei(object):
             'key_sig': None,
             'time_sig': None,
             'clef': None,
-            'beam': None
+            'beam': None,
+            'measure_num': None, # this holds measure "n" value we are currently on.
+            'staff_num': None,
+            'layer_num': None,
         }
     
     def parseFile(self, filename):
@@ -86,6 +91,7 @@ class ConverterMei(object):
         #self._parse_children(self._meiDoc.gettoplevel())
         self._structure_work()
         lg.debug(self._registry)
+        lg.debug(self._contexts)
     
     # ===============================
     # register objects by ID.
@@ -105,7 +111,7 @@ class ConverterMei(object):
         if element.name in self._objects_to_convert.keys():
             n = self._objects_to_convert[element.name](element)
             if not isinstance(n, types.NoneType):
-                self._registry.append((element.id, n))
+                self._registry[element.id] = n
         if element.children:
             map(self._parse_children, element.children)
             
@@ -123,15 +129,66 @@ class ConverterMei(object):
             pass
         elif element.name == "layer":
             lg.debug(" ==> set the layer (voice) context")
-            pass
+            # sid = element.ancestor_by_name('staff').attribute_by_name('n').value
+            sid = self._contexts['staff_num']
+            lid = element.attribute_by_name('n').value
+            self._contexts['layer_num'] = lid
+            address = "{0}.{1}".format(sid, lid)
+            
+            voice = self._voice_registry[address]
+            self._contexts['voice'] = voice
+            
+            measureaddress = "{0}.{1}.{2}".format(sid, lid, self._contexts['measure_num'])
+            self._contexts['measure'] = self._measure_registry[measureaddress]
+            
+            lg.debug("Voice context is: {0}".format(voice))
+            
+        elif element.name == "measure":
+            # new measure. Unset some contexts.
+            lg.debug("New Measure. Resetting some contexts.")
+            self._contexts['chord'] = None
+            self._contexts['beam'] = None
+            self._contexts['note'] = None
+            
+            # find out how many staves / voices we have in this measure, and compute
+            # their number and location.
+            stv = element.descendents_by_name('staff')
+            voc = element.descendents_by_name('layer')
+            
+            # we always want at least 1 measure            
+            n_voices = len(voc) if len(voc) > 0 else 1
+            
+            n_measures = n_voices
+            lg.debug("Number of measures to construct: {0}".format(n_measures))
+            
+            # this should probably be moved to the registry setup section.
+            mid = element.attribute_by_name('n').value
+            for staff in stv:
+                sid = staff.attribute_by_name('n').value
+                for voice in voc:
+                    vid = voice.attribute_by_name('n').value
+                    address = "{0}.{1}.{2}".format(sid, vid, mid)
+                    self._measure_registry[address] = stream.Measure()
+            
+            self._contexts['measure_num'] = mid
+            
+            lg.debug(self._measure_registry)
+            
         elif element.name == "staff":
-            lg.debug(" ==> setting a staff context")
+            lg.debug(" ==> setting a staff context.")
+            sid = element.attribute_by_name('n').value
+            
+            self._contexts['staff_num'] = sid
             pass
         elif element.name == "chord":
             lg.debug(" ==> Setting a chord context")
+            chord = self._registry[element.id]
+            self._contexts['chord'] = chord
             pass
         elif element.name == "beam":
             lg.debug(" ==> Setting a beam context")
+            beam = self._registry[element.id]
+            self._contexts['beam'] = beam
             pass
         elif element.name == "note"  :
             lg.debug(" ==> Setting a note context ")
@@ -191,8 +248,10 @@ class ConverterMei(object):
         
         address = "{0}.{1}".format(sid, lid)
         if address not in self._voice_registry.keys():
+            # we have the need to construct a new voice.
+            m_voice = stream.Voice()
             lg.debug("Creating a new voice from {0}".format(element.id))
-            self._voice_registry[address] = stream.Voice()
+            self._voice_registry[address] = m_voice
     
     def _create_note(self, element):
         lg.debug("Creating a note from {0}".format(element.id))
@@ -217,6 +276,12 @@ class ConverterMei(object):
         m_chord = chord.Chord()
         
         return m_chord
+        
+    def _create_beam(self, element):
+        lg.debug("Creating a beam from {0}".format(element.id))
+        m_beam = beam.Beam()
+        
+        return m_beam
     
     def _barline_converter(self, barline):
         """ 
