@@ -20,6 +20,8 @@ import pprint
 import copy
 lg = logging.getLogger('pymei')
 
+import pdb
+
 # document => stream.Score()
 # staff/staffgrp => stream.Part()
 # layer => stream.Voice()
@@ -42,6 +44,8 @@ class ConverterMei(object):
         self._staff_registry = {}
         self._voice_registry = {}
         self._measure_registry = {}
+        
+        self.__flattened = []
         
         # for these, it's {'staffn': <m21_obj>}
         self._key_sig_registry = {}
@@ -122,7 +126,7 @@ class ConverterMei(object):
         lg.debug(self._contexts)
         lg.debug(self._staff_registry)
         
-        self._score.show('text')
+        self._score.show()
     
     # ===============================
     # register objects by ID.
@@ -140,6 +144,7 @@ class ConverterMei(object):
             #         self._parse_children(measure)
     
     def _parse_children(self, element):
+        self.__flattened.append(element)
         if element.name in self._objects_to_convert.keys():
             n = self._objects_to_convert[element.name](element)
             if not isinstance(n, types.NoneType):
@@ -149,89 +154,80 @@ class ConverterMei(object):
             
     # start building the M21 structure
     def _structure_work(self):
-        for section in self._sections:
-            if section.has_child('scoredef'):
-                #set the new scoredefs.
+        for element in self.__flattened:
+            if element.name == "scoredef":
+                lg.debug(" ==> Setting a score definition context")
                 pass
-            self._parse_structure(section)
-    
-    def _parse_structure(self, element):
-        if element.name == "scoredef":
-            lg.debug(" ==> Setting a score definition context")
-            pass
-        elif element.name == "layer":
-            lg.debug(" ==> set the layer (voice) context")
-            # sid = element.ancestor_by_name('staff').attribute_by_name('n').value
-            sid = self._contexts['staff_num']
-            lid = element.attribute_by_name('n').value
-            self._contexts['layer_num'] = lid
-            address = "{0}.{1}".format(sid, lid)
-            
-            voice = self._voice_registry[address]
-            self._contexts['voice'] = voice
-            
-            measureaddress = "{0}.{1}.{2}".format(sid, lid, self._contexts['measure_num'])
-            
-            measure = self._measure_registry[measureaddress]
-            self._contexts['measure'] = measure
-            
-            key_sig, key_has_changed = self._key_sig_registry[sid]
-            time_sig, time_has_changed = self._time_sig_registry[sid]
-            clef, clef_has_changed = self._clef_registry[sid]
-            if key_has_changed:
-                lg.debug("Setting a new key signature")
-                measure.keyIsNew = True
-                measure.keySignature = key_sig
-                self._key_sig_registry[sid][1] = False
-            if time_has_changed:
-                lg.debug("Setting a new time signature")
-                measure.timeSignatureIsNew = True
-                measure.timeSignature = time_sig
-                self._time_sig_registry[sid][1] = False
-            if clef_has_changed:
-                lg.debug("Setting a new clef.")
-                measure.clefIsNew = True
-                measure.clef = clef
-                self._clef_registry[sid][1] = False
+            elif element.name == "layer":
+                lg.debug(" ==> set the layer (voice) context")
+                # sid = element.ancestor_by_name('staff').attribute_by_name('n').value
+                sid = self._contexts['staff_num']
+                lid = element.attribute_by_name('n').value
+                self._contexts['layer_num'] = lid
+                address = "{0}.{1}".format(sid, lid)
                 
-            voice.append(measure)
+                voice = self._voice_registry[address]
+                self._contexts['voice'] = voice
+                
+                measureaddress = "{0}.{1}.{2}".format(sid, lid, self._contexts['measure_num'])
+                
+                m_measure = self._measure_registry[measureaddress]
+                self._contexts['measure'] = m_measure
+                
+                key_sig, key_has_changed = self._key_sig_registry[sid]
+                time_sig, time_has_changed = self._time_sig_registry[sid]
+                clf, clef_has_changed = self._clef_registry[sid]
+                if key_has_changed:
+                    lg.debug("Setting a new key signature")
+                    m_measure.keyIsNew = True
+                    m_measure.keySignature = key_sig
+                    self._key_sig_registry[sid][1] = False
+                if time_has_changed:
+                    lg.debug("Setting a new time signature")
+                    m_measure.timeSignatureIsNew = True
+                    m_measure.timeSignature = time_sig
+                    self._time_sig_registry[sid][1] = False
+                if clef_has_changed:
+                    lg.debug("Setting a new clef.")
+                    m_measure.clefIsNew = True
+                    m_measure.clef = clf
+                    self._clef_registry[sid][1] = False
+                    
+                pdb.set_trace()
+                    
+                voice.append(m_measure)
             
-            lg.debug("Voice context is: {0}".format(voice))
+            elif element.name == "measure":
+                # new measure. Unset some contexts.
+                lg.debug("New Measure. Resetting some contexts.")
+                self._contexts['chord'] = None
+                self._contexts['beam'] = None
+                self._contexts['note'] = None
             
-        elif element.name == "measure":
-            # new measure. Unset some contexts.
-            lg.debug("New Measure. Resetting some contexts.")
-            self._contexts['chord'] = None
-            self._contexts['beam'] = None
-            self._contexts['note'] = None
+                mid = element.attribute_by_name('n').value
+                self._contexts['measure_num'] = mid            
             
-            mid = element.attribute_by_name('n').value
-            self._contexts['measure_num'] = mid            
+            elif element.name == "staff":
+                lg.debug(" ==> setting a staff context.")
+                sid = element.attribute_by_name('n').value
+                self._contexts['staff_num'] = sid
+                self._contexts['staff'] = self._staff_registry[sid]
             
-        elif element.name == "staff":
-            lg.debug(" ==> setting a staff context.")
-            sid = element.attribute_by_name('n').value
-            self._contexts['staff_num'] = sid
-            self._contexts['staff'] = self._staff_registry[sid]
-            
-        elif element.name == "chord":
-            lg.debug(" ==> Setting a chord context")
-            chord = self._registry[element.id]
-            self._contexts['chord'] = chord
-            pass
-        elif element.name == "beam":
-            lg.debug(" ==> Setting a beam context")
-            beam = self._registry[element.id]
-            self._contexts['beam'] = beam
-            pass
-        elif element.name == "note":
-            lg.debug(" ==> Setting a note context ")
-            self._contexts['measure'].append(self._registry[element.id])
-        elif element.name == "rest":
-            self._contexts['measure'].append(self._registry[element.id])
-        
-        if element.children:
-            map(self._parse_structure, element.children)
+            elif element.name == "chord":
+                lg.debug(" ==> Setting a chord context")
+                chord = self._registry[element.id]
+                self._contexts['chord'] = chord
+                pass
+            elif element.name == "beam":
+                lg.debug(" ==> Setting a beam context")
+                beam = self._registry[element.id]
+                self._contexts['beam'] = beam
+                pass
+            elif element.name == "note":
+                lg.debug(" ==> Setting a note context ")
+                self._contexts['measure'].append(self._registry[element.id])
+            elif element.name == "rest":
+                self._contexts['measure'].append(self._registry[element.id])
     
     # ===================================
     
@@ -247,42 +243,37 @@ class ConverterMei(object):
         # tasks that we can condense into the measure creation here.
         lg.debug("Creating a measure, for what it's worth, from {0}".format(element.id))
         stv = element.descendents_by_name('staff')
-        voc = element.descendents_by_name('layer')
         
-        # we always want at least 1 measure            
-        n_voices = len(voc) if len(voc) > 0 else 1
-        
-        n_measures = n_voices
-        lg.debug("Number of measures to construct: {0}".format(n_measures))
         mid = element.attribute_by_name('n').value
         for staff in stv:
+            voc = staff.descendents_by_name('layer')
             sid = staff.attribute_by_name('n').value
-            
             for voice in voc:
                 vid = voice.attribute_by_name('n').value
                 address = "{0}.{1}.{2}".format(sid, vid, mid)
                 m_measure = stream.Measure()
                 self._measure_registry[address] = m_measure
-        
-        if element.has_attribute('n') and element.measure_number.isdigit():
-            m_measure.number = int(element.measure_number)
-        
-        if element.has_barline:
-            lg.debug("Barline is {0} and repeat is {1}".format(element.barline, element.is_repeat))
-            if element.is_repeat:
-                m_barline = bar.Repeat()
-                m_barline.style = self._barline_converter(element.barline)
-                if element.barline == "rptstart":
-                    m_barline.direction = "start"
-                elif element.barline == "rptend":
-                    m_barline.direction = "end"
-                else:
-                    raise ConverterMeiError("Could not determine repeat barline type")
-            else:
-                m_barline = bar.Barline()
-                m_barline.style = self._barline_converter(element.barline)
+                lg.debug("Measure Registry: {0}".format(self._measure_registry))
                 
-            m_measure.rightBarline = m_barline
+                if element.has_attribute('n') and element.measure_number.isdigit():
+                    m_measure.number = int(element.measure_number)
+                    
+                if element.has_barline:
+                    lg.debug("Barline is {0} and repeat is {1}".format(element.barline, element.is_repeat))
+                    if element.is_repeat:
+                        m_barline = bar.Repeat()
+                        m_barline.style = self._barline_converter(element.barline)
+                        if element.barline == "rptstart":
+                            m_barline.direction = "start"
+                        elif element.barline == "rptend":
+                            m_barline.direction = "end"
+                        else:
+                            raise ConverterMeiError("Could not determine repeat barline type")
+                    else:
+                        m_barline = bar.Barline()
+                        m_barline.style = self._barline_converter(element.barline)
+                
+                    m_measure.rightBarline = m_barline
             
         #return m_measure
         
@@ -319,17 +310,13 @@ class ConverterMei(object):
         # not this object is new and should be put in a measure.
         # clef
         lg.debug("Creating clef.")
-        m_clef = clef.Clef()
         if element.has_attribute('clef.line'):
             cl = int(element.attribute_by_name('clef.line').value)
-            m_clef.line = cl
         else:
             cl = 2 # we'll construct a treble clef by default
             
         if element.has_attribute('clef.shape'):
             cs = element.attribute_by_name('clef.shape').value
-            lg.debug("CLef shape: {0}".format(cs))
-            m_clef.sign = cs
         else:
             cs = "G"
     
@@ -342,8 +329,11 @@ class ConverterMei(object):
             cdp = element.attribute_by_name('clef.dis.place').value
             if cdp == 'below':
                 octavechg = -(octavechg)
-                
-        m_clef._setClefClass(cs, cl, octavechg)
+        
+        m_clef = clef.standardClefFromXN("{0}{1}".format(cs, cl))
+        
+        pdb.set_trace()
+        
         self._clef_registry[staffnum] = [m_clef, True]
         
         # keysig
@@ -498,6 +488,46 @@ class ConverterMei(object):
             return barline_dict[barline]
         else:
             raise ConverterMeiError("Could not convert barline.")
+    
+    def _clef_converter(self, c):
+        #c = (shape, line, octavechg)
+        # this is stolen from the music21 clef class, for setting the clef
+        # from a musicxml attribute list.
+        if c == ('G', 1, 0):
+            return clef.FrenchViolinClef
+        elif c == ('G', 2, 0):
+            return clef.TrebleClef
+        elif c == ('G', 2, -1):
+            return clef.Treble8vbClef
+        elif c == ('G', 2, 1):
+            return clef.Treble8vaClef
+        elif c == ('G', 3, 0):
+            return clef.GSopranoClef
+        elif c == ('C', 1, 0):
+            return clef.SopranoClef
+        elif c == ('C', 2, 0):
+            return clef.MezzoSopranoClef
+        elif c == ('C', 3, 0):
+            return clef.AltoClef
+        elif c == ('C', 4, 0):
+            return clef.TenorClef
+        elif c == ('C', 5, 0):
+            return clef.CBaritoneClef
+        elif c == ('F', 3, 0):
+            return clef.FBaritoneClef
+        elif c == ('F', 4, 0):
+            return clef.BassClef
+        elif c == ('F', 4, -1):
+            return clef.Bass8vbClef
+        elif c == ('F', 4, 1):
+            return clef.Bass8vaClef
+        elif c == ('F', 5, 0):
+            return clef.SubBassClef
+        else:
+            raise ConverterMeiError('cannot match clef parameters (%s/%s/%s) to a Clef subclass' % (c[0], c[1], c[2]))
+        
+        
+        
 
 if __name__ == "__main__":
     from optparse import OptionParser
