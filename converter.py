@@ -24,8 +24,8 @@ import pdb
 
 # document => stream.Score()
 # staff/staffgrp => stream.Part()
-# layer => stream.Voice()
 # measure => stream.Measure()
+# layer => stream.Voice()
 
 
 
@@ -42,7 +42,6 @@ class ConverterMei(object):
         self._sections = None
         self._score = stream.Score()
         self._staff_registry = {}
-        self._voice_registry = {}
         self._measure_registry = {}
         
         self.__flattened = []
@@ -115,18 +114,25 @@ class ConverterMei(object):
         #self._parse_children(self._meiDoc.gettoplevel())
         self._structure_work()
         
-        for k,v in self._voice_registry.iteritems():
-            staff = k.split('.')[0]
-            self._staff_registry[staff].append(v)
-            
-        self._score.append(self._staff_registry.values())
+        # for k,m in self._measure_registry.iteritems():
+        #     lg.debug("Measure processing: {0}".format(m))
+            # if m.barDurationProportion() < 1.0:
+            #     m.padAsAnacrusis()
         
+        # for k,v in self._voice_registry.iteritems():
+        #     staff = k.split('.')[0]
+        #     self._staff_registry[staff].insert(0, v)
+        # 
+        # for k,s in self._staff_registry.iteritems():
+        #     self._score.insert(0, s)
+        
+        # self._score.append(self._staff_registry.values())
         
         lg.debug(self._registry)
         lg.debug(self._contexts)
         lg.debug(self._staff_registry)
         
-        self._score.show()
+        self._score.show('text')
     
     # ===============================
     # register objects by ID.
@@ -135,13 +141,10 @@ class ConverterMei(object):
         for scoredef in scoredefs:
             if not scoredef.ancestor_by_name('section'):
                 self._parse_children(scoredef)
-
+                
         self._sections = self._meiDoc.search('section')
         for section in self._sections:
             self._parse_children(section)
-            # if section.descendents_by_name('measure'):
-            #     for measure in section.descendents_by_name('measure'):
-            #         self._parse_children(measure)
     
     def _parse_children(self, element):
         self.__flattened.append(element)
@@ -161,22 +164,10 @@ class ConverterMei(object):
             elif element.name == "layer":
                 lg.debug(" ==> set the layer (voice) context")
                 # sid = element.ancestor_by_name('staff').attribute_by_name('n').value
-                sid = self._contexts['staff_num']
-                lid = element.attribute_by_name('n').value
-                self._contexts['layer_num'] = lid
-                address = "{0}.{1}".format(sid, lid)
-                
-                voice = self._voice_registry[address]
-                self._contexts['voice'] = voice
-                
-                measureaddress = "{0}.{1}.{2}".format(sid, lid, self._contexts['measure_num'])
-                
-                m_measure = self._measure_registry[measureaddress]
-                self._contexts['measure'] = m_measure
-                
                 key_sig, key_has_changed = self._key_sig_registry[sid]
                 time_sig, time_has_changed = self._time_sig_registry[sid]
                 clf, clef_has_changed = self._clef_registry[sid]
+                
                 if key_has_changed:
                     lg.debug("Setting a new key signature")
                     m_measure.keyIsNew = True
@@ -193,42 +184,24 @@ class ConverterMei(object):
                     m_measure.clef = clf
                     self._clef_registry[sid][1] = False
                     
-                pdb.set_trace()
-                    
-                voice.append(m_measure)
-            
             elif element.name == "measure":
                 # new measure. Unset some contexts.
                 lg.debug("New Measure. Resetting some contexts.")
-                self._contexts['chord'] = None
-                self._contexts['beam'] = None
-                self._contexts['note'] = None
-            
-                mid = element.attribute_by_name('n').value
-                self._contexts['measure_num'] = mid            
-            
+                
             elif element.name == "staff":
                 lg.debug(" ==> setting a staff context.")
-                sid = element.attribute_by_name('n').value
-                self._contexts['staff_num'] = sid
-                self._contexts['staff'] = self._staff_registry[sid]
-            
+                
             elif element.name == "chord":
                 lg.debug(" ==> Setting a chord context")
-                chord = self._registry[element.id]
-                self._contexts['chord'] = chord
-                pass
+                
             elif element.name == "beam":
                 lg.debug(" ==> Setting a beam context")
-                beam = self._registry[element.id]
-                self._contexts['beam'] = beam
-                pass
+                
             elif element.name == "note":
                 lg.debug(" ==> Setting a note context ")
-                self._contexts['measure'].append(self._registry[element.id])
+                
             elif element.name == "rest":
-                self._contexts['measure'].append(self._registry[element.id])
-    
+                lg.debug(" ==> Setting rest as content ")
     # ===================================
     
     def _create_staffgrp(self, element):
@@ -241,43 +214,30 @@ class ConverterMei(object):
         # a bit of an anomaly, this one. There is not a direct one-to-one
         # mapping of mei measure to m21 measure. Nevertheless, there are certain
         # tasks that we can condense into the measure creation here.
-        lg.debug("Creating a measure, for what it's worth, from {0}".format(element.id))
-        stv = element.descendents_by_name('staff')
+        lg.debug("Creating a measure from {0}".format(element.id))
         
         mid = element.attribute_by_name('n').value
-        for staff in stv:
-            voc = staff.descendents_by_name('layer')
-            sid = staff.attribute_by_name('n').value
-            for voice in voc:
-                vid = voice.attribute_by_name('n').value
-                address = "{0}.{1}.{2}".format(sid, vid, mid)
-                m_measure = stream.Measure()
-                self._measure_registry[address] = m_measure
-                lg.debug("Measure Registry: {0}".format(self._measure_registry))
-                
-                if element.has_attribute('n') and element.measure_number.isdigit():
-                    m_measure.number = int(element.measure_number)
-                    
-                if element.has_barline:
-                    lg.debug("Barline is {0} and repeat is {1}".format(element.barline, element.is_repeat))
-                    if element.is_repeat:
-                        m_barline = bar.Repeat()
-                        m_barline.style = self._barline_converter(element.barline)
-                        if element.barline == "rptstart":
-                            m_barline.direction = "start"
-                        elif element.barline == "rptend":
-                            m_barline.direction = "end"
-                        else:
-                            raise ConverterMeiError("Could not determine repeat barline type")
-                    else:
-                        m_barline = bar.Barline()
-                        m_barline.style = self._barline_converter(element.barline)
-                
-                    m_measure.rightBarline = m_barline
-            
-        #return m_measure
+        m_measure = stream.Measure()
         
-    
+        if element.has_attribute('n') and element.measure_number.isdigit():
+            m_measure.number = int(element.measure_number)
+                    
+        if element.has_barline:
+            lg.debug("Barline is {0} and repeat is {1}".format(element.barline, element.is_repeat))
+            if element.is_repeat:
+                m_barline = bar.Repeat()
+                m_barline.style = self._barline_converter(element.barline)
+                if element.barline == "rptstart":
+                    m_barline.direction = "start"
+                elif element.barline == "rptend":
+                    m_barline.direction = "end"
+                else:
+                    raise ConverterMeiError("Could not determine repeat barline type")
+            else:
+                m_barline = bar.Barline()
+                m_barline.style = self._barline_converter(element.barline)
+            m_measure.rightBarline = m_barline
+            
     def _create_scoredef(self, element):
         # these are global elements. Unless they're changed at a more local
         # (e.g., staffdef or layerdef) level, we'll use these values
@@ -331,9 +291,6 @@ class ConverterMei(object):
                 octavechg = -(octavechg)
         
         m_clef = clef.standardClefFromXN("{0}{1}".format(cs, cl))
-        
-        pdb.set_trace()
-        
         self._clef_registry[staffnum] = [m_clef, True]
         
         # keysig
@@ -363,21 +320,22 @@ class ConverterMei(object):
         self._time_sig_registry[staffnum] = [m_ts, True]
         
     def _create_voice(self, element):
-        lid = element.attribute_by_name('n').value
-        
-        if element.name == "layer":
-            sid = element.ancestor_by_name('staff').attribute_by_name('n').value
-        elif element.name == "layerdef":
-            sid = element.ancestor_by_name('staffdef').attribute_by_name('n').value
-        else:
-            raise ConverterMeiError("Could not determine voice context.")
-        
-        address = "{0}.{1}".format(sid, lid)
-        if address not in self._voice_registry.keys():
-            # we have the need to construct a new voice.
-            m_voice = stream.Voice()
-            lg.debug("Creating a new voice from {0}".format(element.id))
-            self._voice_registry[address] = m_voice
+        pass
+        # lid = element.attribute_by_name('n').value
+        # 
+        # if element.name == "layer":
+        #     sid = element.ancestor_by_name('staff').attribute_by_name('n').value
+        # elif element.name == "layerdef":
+        #     sid = element.ancestor_by_name('staffdef').attribute_by_name('n').value
+        # else:
+        #     raise ConverterMeiError("Could not determine voice context.")
+        # 
+        # address = "{0}.{1}".format(sid, lid)
+        # if address not in self._voice_registry.keys():
+        #     # we have the need to construct a new voice.
+        #     m_voice = stream.Voice()
+        #     lg.debug("Creating a new voice from {0}".format(element.id))
+        #     self._voice_registry[address] = m_voice
     
     def _create_note(self, element):
         lg.debug("Creating a note from {0}".format(element.id))
