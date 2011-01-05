@@ -183,7 +183,6 @@ class MeiConverter(object):
                 #     clf = self._contexts['clef'][self._contexts['staff_num']]
                 #     # self._contexts['clef'] = clf
                 
-                # pdb.set_trace()
                 
                 # try:
                 #     keysig = dict(self._key_sig_registry)[staff_address]
@@ -214,7 +213,6 @@ class MeiConverter(object):
                 # else:
                 #     m.clefIsNew = False
                 
-                #pdb.set_trace()
                 
                 m.keySignature = keysig[0]
                 m.keyIsNew = True
