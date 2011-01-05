@@ -16,7 +16,6 @@ from music21 import clef
 
 import types
 import logging
-import pprint
 import copy
 lg = logging.getLogger('pymei')
 
@@ -88,7 +87,7 @@ class MeiConverter(object):
         #         self._measure_registry[""]
         
         for k,v in self._staff_registry:
-            if k.startswith("3"):
+            if k.startswith("0"):
                 self._score.insert(0, v)
         
         self._score.show('text')

@@ -1,0 +1,59 @@
+This has not yet been fully integrated into the Music21 toolkit - it's more "proof of concept" code for now.
+
+=== Caveats ===
+
+Currently this script runs just as a standalone command-line utility, so it's use in actual Music21 applications is somewhat limited.
+
+I've tested it with two MEI-encoded files, provided in the <testfiles> folder: Bach's "Toccata & Fugue" BWV 565, and a short theme from Beethoven's "Variations on a Swiss Song." 
+
+Run it like this:
+
+$ python converter.py -f /path/to/testfiles/bwv0565.mei
+
+The debugging code is left in the script, so you should get a screen of text flying by. At the end it will (by default) show the Music21 structure in text. To get it to open up in a notation program, change line 94 in converter.py to do the appropriate thing.
+
+=== Requirements ===
+
+For now, we require the PyMEI library, which requires the lxml Python module. This unfortunately differs from the XML library required for Music21. We hope to address this in a future release.
+
+You can get the PyMEI library at http://github.com/ahankinson/pymei.
+
+Python 2.6+ is required. 3.0+ has not been tested.
+
+=== Installation ===
+
+Create a folder called "mei" in the main Music21 directory by checking out the code from Github (it should be on the same directory level as "musicxml" and "abc"). On the command line:
+
+$ cd <music21 directory>
+$ git clone http://github.com/ahankinson/music21-mei.git mei
+
+As of right now, you will need a Subversion checkout of the latest Music21 library. I'll be posting patches to the Music21 folks, so keep an eye on their issue boards.
+
+=== Known Issues ===
+
+Whooo boy. That's a can of worms. I'm surprised it even works.
+
+1. Beams are not implemented. Prepare to see lots of flags.
+2. Accidentals and key signatures haven't quite been worked out. Expect to see accidentals on notes that are in the key signature.
+3. Full-measure rests are buggy.
+4. MuseScore has serious issues. Finale Reader seems to be much better.
+5. Time Sigs, Key Sigs and Clefs are set on *every* measure, instead of only when needed.
+6. Sometimes staff ordering gets out of whack.
+7. There is no real equivalent to MEI <sections> in Music21, so you have to render sections independently. For the Beethoven, that is not a problem since there is only one section, but for the Bach you'll have to change the code to render each section. Change line 91 ("k.startswith("0")") to 1, 2 or 3 to get the appropriate section. This will likely be reworked later.
+8. Articulations are not present. 
+
+And a host of others issues.
+
+=== FAQ ===
+
+Q. "Why not just convert MEI to MusicXML using (insert favourite XML munging technology here) and use Music21 that way?"
+
+A. Two reasons: 1. MEI is quite new, and as a format it needs native software that can read and write it. This is a proof of concept project to get something up and running, and 2. MEI supports quite a few useful features that could be used in Music21. As this module matures, we hope to integrate things like alternate readings of a score, different source encodings, mensural and chant notations - all of which are not currently supported by MusicXML. 
+
+Q. "This software doesn't work on my computer! Why did you release this <expletive>"?
+
+A. I'm a "release early, release often" kind of guy. If you're interested in helping me develop this, I'd love to hear from you. If you just want to use it, I'm afraid you'll have to wait longer. Sorry.
+
+Q. "It won't parse mygreatfile.mei!"
+
+A. The only files it's been tested on are the two provided in the testfiles directory. MEI is a huge spec, so supporting all the features of every file is a big job. I can guarantee that it will parse those files; I can't guarantee that it will parse anything else. Caveat parser, as they say in Rome.
