@@ -20,8 +20,6 @@ import pprint
 import copy
 lg = logging.getLogger('pymei')
 
-import pdb
-
 class MeiConverterError(Exception):
     def __init__(self, message):
         self.message = message
@@ -94,7 +92,6 @@ class MeiConverter(object):
                 self._score.insert(0, v)
         
         self._score.show('text')
-        pdb.set_trace()
         
     # ==================
     def _flatten_structure(self, element):
@@ -339,8 +336,6 @@ class MeiConverter(object):
         if element.articulations:
             # deal with note articulations.
             pass
-        if element.id == "d1e38008":
-            pdb.set_trace()
 
         return m_note    
         
