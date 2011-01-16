@@ -245,7 +245,8 @@ class MeiConverter(object):
                 # create beam
                 # set beam context
                 pass
-            elif element.name == "note":
+            
+	    elif element.name == "note":
                 # create note context
                 # check if in chord
                     # add to chord and continue
@@ -339,7 +340,12 @@ class MeiConverter(object):
     # ===================
     def _create_note(self, element):
         # lg.debug("Creating a note from {0}".format(element.id))
-        m_note = note.Note(element.pitch_octave)
+        pname = element.pitchname
+        accid = self._accidental_converter(element.accidentals)
+        octav = element.octave
+        nt = "".join([pname, accid, octav])
+        
+        m_note = note.Note(nt)
         
         if element.duration:
             # the note itself has the duration
@@ -642,6 +648,25 @@ class MeiConverter(object):
         sublist = self.__flatten[startidx:endidx]
         elrange = [el for el in sublist if el.name in names]
         return elrange
+    
+    def _accidental_converter(self, accid):
+        """ Takes an MEI accidental and returns the appropriate M21 conversion."""
+        conv = {
+            'n': 'n',
+            's': '#', 
+            'f': '-', 
+            'ss': '##', 
+            'x': '##', 
+            'ff': '--',
+            'xs': '###',
+            'tb': '---'
+        }
+        try:
+            return conv[accid]
+        except KeyError:
+            return ''
+        
+        
         
     
 if __name__ == "__main__":
