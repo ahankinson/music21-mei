@@ -211,7 +211,9 @@ class MeiConverter(object):
                 self._contexts['chords'][element.id] = c
                 self._contexts['voice'].append(c)
                 
+                lg.debug("Checking for beams...")
                 if element.has_ancestor('beam'):
+                    lg.debug("Yup! Beams!")
                     lg.debug("Beam found for element {0} and duration {1}".format(element.id, c.duration.type))
                     if c.duration.type == "eighth":
                         c.beams.fill("eighth")
@@ -227,15 +229,22 @@ class MeiConverter(object):
                         c.beams.fill("256th")
                     else:
                         pass
-                
+                    
+                    first_beam = element.ancestor_by_name('beam').first_child
+                    last_beam = element.ancestor_by_name('beam').last_child
+                    
                     lg.debug("{0}".format(element.ancestor_by_name('beam')))
-                    if element == element.ancestor_by_name('beam').first_child:
+                    if element == first_beam:
                         lg.debug("Element is first")
                         c.beams.setAll('start')
-                
-                    if element == element.ancestor_by_name('beam').last_child:
+                    if element == last_beam:
                         lg.debug("Element is last")
                         c.beams.setAll('stop')
+                    
+                    if element != first_beam and element != last_beam:
+                        lg.debug("Element continues a beam.")
+                        c.beams.setAll('continue')
+                    
                     
                     if None in c.beams.beamsList:
                         pdb.set_trace()
@@ -266,8 +275,9 @@ class MeiConverter(object):
                     # add the note directly to the voice
                     self._contexts['voice'].append(n)
                 
+                lg.debug("Checking for beams...")
                 if element.has_ancestor('beam'):
-                    lg.debug("Beam found for element {0} and duration {1}".format(element.id, n.duration.type))
+                    lg.debug("Yup! Beams!")
                     if n.duration.type == "eighth":
                         n.beams.fill("eighth")
                     elif n.duration.type == "16th":
@@ -282,13 +292,23 @@ class MeiConverter(object):
                         n.beams.fill("256th")
                     else:
                         pass
-                    
-                    if element == element.ancestor_by_name('beam').first_child:
+
+                    first_beam = element.ancestor_by_name('beam').first_child
+                    last_beam = element.ancestor_by_name('beam').last_child
+
+                    lg.debug("{0}".format(element.ancestor_by_name('beam')))
+                    if element == first_beam:
+                        lg.debug("Element is first")
                         n.beams.setAll('start')
-                    
-                    if element == element.ancestor_by_name('beam').last_child:
+                    if element == last_beam:
+                        lg.debug("Element is last")
                         n.beams.setAll('stop')
-                    
+
+                    if element != first_beam and element != last_beam:
+                        lg.debug("Element continues a beam.")
+                        n.beams.setAll('continue')
+
+
                     if None in n.beams.beamsList:
                         pdb.set_trace()
                     
@@ -651,7 +671,9 @@ class MeiConverter(object):
     
     def _accidental_converter(self, accid):
         """ Takes an MEI accidental and returns the appropriate M21 conversion."""
+        accid = "".join(accid)
         conv = {
+            '': '',
             'n': 'n',
             's': '#', 
             'f': '-', 
