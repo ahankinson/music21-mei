@@ -19,6 +19,8 @@ import logging
 import copy
 lg = logging.getLogger('pymei')
 
+import pdb
+
 class MeiConverterError(Exception):
     def __init__(self, message):
         self.message = message
@@ -32,23 +34,17 @@ class MeiConverter(object):
         self._mei_doc = None
         self._score = stream.Score()
         
-        
-        self._staff_registry = []
-        self._section_registry = []
-        self._measure_registry = []
-        self._voice_registry = []
-        self._chord_registry = []
-        self._nr_registry = [] # note and rest registry
-        
-        # these are per-staff (staffdef) registries
-        self._clef_registry = []
-        self._key_sig_registry = []
-        self._time_sig_registry = []
+        # self._staff_registry = []
+        # self._section_registry = []
+        # self._measure_registry = []
+        # self._voice_registry = []
+        # self._chord_registry = []
+        # self._nr_registry = [] # note and rest registry
         
         # these are global (scoredef) registries
-        self._global_clef = None
-        self._global_key_sig = None
-        self._global_time_sig = None
+        # self._global_clef = None
+        # self._global_key_sig = None
+        # self._global_time_sig = None
         
         self._mc = None # global meter count
         self._mu = None # global meter unit
@@ -57,14 +53,24 @@ class MeiConverter(object):
         self._cs = None # global clef shape
         
         self._contexts = {
+            'sections': {},
             'section_num': None,
+            'measures': {},
             'measure_num': None,
+            'staves': {},
             'staff_num': None,
+            'voices': {},
             'voice_num': None,
+            'section': None,
             'measure': None,
+            'staff': None,
+            'voice': None,
             'clef': {},  # contexts['clef']['<staff_num>']
             'key_sig': {},
-            'chord': None
+            'time_sig': {},
+            'chords': {},
+            'chord': None,
+            'note_rest': {}
         }
         
         
@@ -74,23 +80,17 @@ class MeiConverter(object):
         self._create_registries()
         self._parse_structure()
         
+        # pdb.set_trace()
         
-        # lg.debug(sorted(self._section_registry.values()))
-        # lg.debug(self._measure_registry)
-        # lg.debug(self._staff_registry)
-        # lg.debug(self._contexts)
+        for k,v in sorted(self._contexts['staves'].iteritems()):
+            lg.debug("Inserting {0}".format(k))
+            self._score.insert(0, v)
         
-        # for k,v in self._voice_registry.iteritems():
-        #     section,staff,measure,voice = k.split(".")
-        #     if section == "0":
-        #         measure_address = 
-        #         self._measure_registry[""]
+        pdb.set_trace()
         
-        for k,v in self._staff_registry:
-            if k.startswith("0"):
-                self._score.insert(0, v)
-        
+        lg.debug("Done constructing. Showing now.")
         self._score.show('text')
+        pdb.set_trace()
         
     # ==================
     def _flatten_structure(self, element):
@@ -105,15 +105,9 @@ class MeiConverter(object):
         for snum, section in enumerate(sections):
             # unlike others, this registry stores the MEI section object as key, and the number as
             # the value. This is so we can set context later...
-            self._section_registry.append((section, str(snum)))
-            
-            # we need a list of unique measure and staff "n" values. This is 
-            # a really simple way of getting them...
-            staves = section.descendants_by_name('staff')
-            sids = set([str(s.attribute_by_name('n').value) for s in staves])
-            
+            self._contexts['sections'][section] = str(snum)
+            # self._section_registry.append((section, str(snum)))
             measures = section.descendants_by_name('measure')
-            mids = set([str(m.attribute_by_name('n').value) for m in measures])
             
             for measure in measures:
                 mnum = str(measure.attribute_by_name('n').value)
@@ -121,30 +115,36 @@ class MeiConverter(object):
                 staves = measure.descendants_by_name('staff')
                 for staff in staves:
                     stnum = str(staff.attribute_by_name('n').value)
-                    staff_address = "{0}.{1}".format(snum, stnum)
-                    if staff_address not in dict(self._staff_registry).keys():
+                    # staff_address = "{0}.{1}".format(snum, stnum)
+                    # if staff_address not in dict(self._staff_registry).keys():
+                    if stnum not in self._contexts['staves'].keys():
                         s = stream.Part()
-                        self._staff_registry.append((staff_address, s))
+                        self._contexts['staves'][stnum] = s
+                        self._contexts['measures'][stnum] = {}
+                        self._contexts['voices'][stnum] = {}
                     else:
-                        s = dict(self._staff_registry)[staff_address]
+                        s = self._contexts['staves'][stnum]
                     # construct the measures here.
-                    measure_address = "{0}.{1}.{2}".format(snum, stnum, mnum)
-                    if measure_address not in dict(self._measure_registry)  .keys():
+                    # measure_address = "{0}.{1}.{2}".format(snum, stnum, mnum)
+                    # if measure_address not in dict(self._measure_registry).keys():
+                    if mnum not in self._contexts['measures'][stnum].keys():
                         m = self._create_measure(measure)
-                        self._measure_registry.append((measure_address, m))
+                        self._contexts['measures'][stnum][mnum] = m
+                        self._contexts['voices'][stnum][mnum] = {}
                     else:
-                        m = dict(self._measure_registry)[measure_address]
+                        m = self._contexts['measures'][stnum][mnum]
                     # s.append(m)
                     
                     voices = staff.descendants_by_name('layer')
                     for voice in voices:
                         vnum = str(voice.attribute_by_name('n').value)
-                        voice_address = "{0}.{1}.{2}.{3}".format(snum, stnum, mnum, vnum)
-                        if voice_address not in dict(self._voice_registry).keys():
+                        # voice_address = "{0}.{1}.{2}.{3}".format(snum, stnum, mnum, vnum)
+                        # if voice_address not in dict(self._voice_registry).keys():
+                        if vnum not in self._contexts['voices'][stnum][mnum].keys():
                             v = stream.Voice()
-                            self._voice_registry.append((voice_address, v))
+                            self._contexts['voices'][stnum][mnum][vnum] = v
                         else:
-                            v = dict(self._voice_registry)[voice_address]
+                            v = self._contexts['voices'][stnum][mnum][vnum]
                         # m.append(v)
 
     
@@ -152,99 +152,95 @@ class MeiConverter(object):
     def _parse_structure(self):
         for element in self.__flatten:
             if element.name == "section":
-                snum = dict(self._section_registry)[element] # this should *always* be filled.
+                snum = self._contexts['sections'][element] # this should *always* be filled.
                 self._contexts['section_num'] = snum
             elif element.name == "scoredef":
                 self._create_scoredef(element)
                 
-                
-                
             elif element.name == "staffdef":
                 self._create_staffdef(element)
+                
             elif element.name == "measure":
                 self._contexts['measure_num'] = str(element.attribute_by_name('n').value)             
+
             elif element.name == "staff":
                 self._contexts['staff_num'] = str(element.attribute_by_name('n').value)
                 # set both the staff and measure contexts here because we 
                 # have all the information we need now.
-                staff_address = "{0}.{1}".format(self._contexts['section_num'], self._contexts['staff_num'])
-                lg.debug("Staff Address: {0}".format(staff_address))
-                self._contexts['staff'] = dict(self._staff_registry)[staff_address]
-                
-                clf = self._contexts['clef'][self._contexts['staff_num']]
-                keysig = self._contexts['key_sig'][self._contexts['staff_num']]
-                # try:
-                #     clf = dict(self._clef_registry)[staff_address]
-                #     self._contexts['clef'][self._contexts['staff_num']] = clf
-                # except KeyError:
-                #     # we have no clef for this staff, so we'll take it from the global registry.\
-                #     lg.debug("No Clef!")
-                #     clf = self._contexts['clef'][self._contexts['staff_num']]
-                #     # self._contexts['clef'] = clf
-                
-                
-                # try:
-                #     keysig = dict(self._key_sig_registry)[staff_address]
-                #     self._contexts['key_signature'] = keysig
-                # except KeyError:
-                #     keysig = self._global_keysig
-                #     self._contexts['key_signature'] = keysig
+                # staff_address = "{0}.{1}".format(self._contexts['section_num'], self._contexts['staff_num'])
+                self._contexts['staff'] = self._contexts['staves'][self._contexts['staff_num']]
                 
                 try:
-                    timesig = dict(self._time_sig_registry)[staff_address]
-                    self._contexts['time_signature'] = timesig
+                    clf = self._contexts['clef'][self._contexts['staff_num']]
                 except KeyError:
-                    timesig = self._global_timesig
-                    self._contexts['time_signature'] = timesig
+                    clf = self._contexts['clef']['global']
+                    
+                try:
+                    keysig = self._contexts['key_sig'][self._contexts['staff_num']]
+                except KeyError:
+                    keysig = self._contexts['key_sig']['global']
+
+                try:
+                    timesig = self._contexts['time_sig'][self._contexts['staff_num']]
+                except KeyError:
+                    timesig = self._contexts['time_sig']['global']
                 
-                
-                measure_address = "{0}.{1}.{2}".format(self._contexts['section_num'], self._contexts['staff_num'], self._contexts['measure_num'])
-                m = dict(self._measure_registry)[measure_address]
-                
-                lg.debug("Clef: {0}".format(clf))
-                
+                m = self._contexts['measures'][self._contexts['staff_num']][self._contexts['measure_num']]
                 m.clef = clf[0]
                 m.clefIsNew = True
-                # if clf[1] is True:
-                #     clf[1] = False
-                #     m.clef = clf[0]
-                #     m.clefIsNew = True
-                # else:
-                #     m.clefIsNew = False
-                
-                
+                    
                 m.keySignature = keysig[0]
                 m.keyIsNew = True
                 
-                # if keysig[1] is True:
-                #     keysig[1] = False
-                #     m.keySignature = keysig[0]
-                #     m.keyIsNew = True
-                # else:
-                #     m.keyIsNew = False
-                
                 m.timeSignature = timesig[0]
                 m.timeSignatureIsNew = True
-                # if timesig[1] is True:
-                #     timesig[1] = False
-                #     m.timeSignature = timesig[0]
-                #     m.timeSignatureIsNew = True
-                # else:
-                #     m.timeSignatureIsNew = False
-                    
-                self._contexts['measure'] = m
-                self._contexts['staff'].insert(0, self._contexts['measure'])
+                
+                self._contexts['staff'].insert(0, self._contexts['measures'][self._contexts['staff_num']][self._contexts['measure_num']])
                 
             elif element.name == "layer":
                 self._contexts['voice_num'] = str(element.attribute_by_name('n').value)
                 voice_address = "{0}.{1}.{2}.{3}".format(self._contexts['section_num'], self._contexts['staff_num'], self._contexts['measure_num'], self._contexts['voice_num'])
-                self._contexts['voice'] = dict(self._voice_registry)[voice_address]
-                self._contexts['measure'].append(self._contexts['voice'])
+                self._contexts['voice'] = self._contexts['voices'][self._contexts['staff_num']][self._contexts['measure_num']][self._contexts['voice_num']]
+                
+                # since each voice is a concurrent stream of notes, we insert them at index 0 in the measure.
+                self._contexts['measures'][self._contexts['staff_num']][self._contexts['measure_num']].insert(0, self._contexts['voice'])
+
             elif element.name == "chord":
                 # create chord
                 c = self._create_chord(element)
-                self._chord_registry.append((element.id, c))
+                self._contexts['chords'][element.id] = c
                 self._contexts['voice'].append(c)
+                
+                if element.has_ancestor('beam'):
+                    lg.debug("Beam found for element {0} and duration {1}".format(element.id, c.duration.type))
+                    if c.duration.type == "eighth":
+                        c.beams.fill("eighth")
+                    elif c.duration.type == "16th":
+                        c.beams.fill("16th")
+                    elif c.duration.type == "32nd":
+                        c.beams.fill("32nd")
+                    elif c.duration.type == "64th":
+                        c.beams.fill("64th")
+                    elif c.duration.type == "128th":
+                        c.beams.fill("128th")
+                    elif c.duration.type == "256th":
+                        c.beams.fill("256th")
+                    else:
+                        pass
+                
+                    lg.debug("{0}".format(element.ancestor_by_name('beam')))
+                    if element == element.ancestor_by_name('beam').first_child:
+                        lg.debug("Element is first")
+                        c.beams.setAll('start')
+                
+                    if element == element.ancestor_by_name('beam').last_child:
+                        lg.debug("Element is last")
+                        c.beams.setAll('stop')
+                    
+                    if None in c.beams.beamsList:
+                        pdb.set_trace()
+                    
+                
             elif element.name == "beam":
                 # create beam
                 # set beam context
@@ -256,19 +252,44 @@ class MeiConverter(object):
                 # check if in beam
                     # add to beam and continue
                 n = self._create_note(element)
-                self._nr_registry.append((element.id, n))
-                
+                self._contexts['note_rest'][element.id] = n
                 
                 if element.ancestor_by_name('chord'):
                     # set the chord context and add the note.
                     # since a chord only needs a pitch name, we don't have 
                     # to set the whole note, just the pitch.
                     c_id = element.ancestor_by_name('chord').id
-                    m_chord = dict(self._chord_registry)[c_id]
+                    m_chord = self._contexts['chords'][c_id]
                     m_chord.pitches.append(n.pitch)
                 else:
                     # add the note directly to the voice
                     self._contexts['voice'].append(n)
+                
+                if element.has_ancestor('beam'):
+                    lg.debug("Beam found for element {0} and duration {1}".format(element.id, n.duration.type))
+                    if n.duration.type == "eighth":
+                        n.beams.fill("eighth")
+                    elif n.duration.type == "16th":
+                        n.beams.fill("16th")
+                    elif n.duration.type == "32nd":
+                        n.beams.fill("32nd")
+                    elif n.duration.type == "64th":
+                        n.beams.fill("64th")
+                    elif n.duration.type == "128th":
+                        n.beams.fill("128th")
+                    elif n.duration.type == "256th":
+                        n.beams.fill("256th")
+                    else:
+                        pass
+                    
+                    if element == element.ancestor_by_name('beam').first_child:
+                        n.beams.setAll('start')
+                    
+                    if element == element.ancestor_by_name('beam').last_child:
+                        n.beams.setAll('stop')
+                    
+                    if None in n.beams.beamsList:
+                        pdb.set_trace()
                     
             elif element.name == "rest":
                 # create a rest context
@@ -280,29 +301,22 @@ class MeiConverter(object):
                     # and continue
                 r = self._create_rest(element)
                 self._contexts['voice'].append(r)
-                self._nr_registry.append((element.id, r))
+                self._contexts['note_rest'][element.id] = r
                 
             elif element.name == "mrest":
                 # create a full measure rest
-                d = self._contexts['measure'].duration
+                d = self._contexts['measures'][self._contexts['staff_num']][self._contexts['measure_num']].duration
                 r = self._create_mrest(element)
                 r.duration = d
-                self._contexts['voice'].append(r)
-                self._nr_registry.append((element.id, r))
+                self._contexts['voices'][self._contexts['staff_num']][self._contexts['measure_num']][self._contexts['voice_num']].append(r)
+                self._contexts['note_rest'][element.id] = r
             
             elif element.name == "clefchange":
                 clf = self._create_clefchange(element)
-                staff_address = "{0}.{1}".format(self._contexts['section_num'], self._contexts['staff_num'])
-                measure_address = "{0}.{1}.{2}".format(self._contexts['section_num'], self._contexts['staff_num'], self._contexts['measure_num'])
-                m = dict(self._measure_registry)[measure_address]
-                
+                m = self._contexts['measures'][self._contexts['staff_num']][self._contexts['measure_num']]
                 m.clef = clf
                 m.clefIsNew = True
                 self._contexts['clef'][self._contexts['staff_num']] = [clf, True]
-                
-                
-                
-                
         
         # second pass - this deals with spanning elements - slurs, tuplets, etc.
         lg.debug(" ======== Second Pass ========")
@@ -311,7 +325,16 @@ class MeiConverter(object):
                 self._create_tupletspan(element)
             elif element.name == "slur":
                 pass
-            
+        
+        lg.debug(" ======== Third Pass =========")
+        for sect,snum in self._contexts['sections'].iteritems():
+            for stnum, staff in self._contexts['staves'].iteritems():
+                for mnum, meas in sorted(self._contexts['measures'][stnum].iteritems()):
+                    # meas.makeBeams()
+                    for vnum, voic in sorted(self._contexts['voices'][stnum][mnum].iteritems()):
+                        # voic.makeRests()
+                        # voic.makeAccidentals()
+                        voic.makeTupletBrackets()
         
     # ===================
     def _create_note(self, element):
@@ -319,10 +342,15 @@ class MeiConverter(object):
         m_note = note.Note(element.pitch_octave)
         
         if element.duration:
+            # the note itself has the duration
             normalized_duration = self._duration_converter(element.duration)
             m_note.duration = duration.Duration(normalized_duration)
             if element.is_dotted:
                 m_note.duration.dots = int(element.dots)
+        elif element.has_ancestor('chord'):
+            anc = element.ancestor_by_name('chord')
+            normalized_duration = self._duration_converter(anc.duration)
+            m_note.duration = duration.Duration(normalized_duration)
         
         if element.tie:
             # there is no such thing as a medial tie in m21 (yet).
@@ -375,15 +403,18 @@ class MeiConverter(object):
     def _create_scoredef(self, element):
         if element.has_attribute('clef.line') or element.has_attribute('clef.shape'):
             m_clef = self._create_clef(element)
-            self._global_clef = [m_clef, True]
+            self._contexts['clef']['global'] = [m_clef, True]
+            # self._global_clef = [m_clef, True]
         
         if element.has_attribute('meter.count'):
             m_ts = self._create_timesig(element)
-            self._global_timesig = [m_ts, True]
+            self._contexts['time_sig']['global'] = [m_ts, True]
+            # self._global_timesig = [m_ts, True]
         
         if element.has_attribute('key.sig'):
             m_ks = self._create_keysig(element)
-            self._global_keysig = [m_ks, True]
+            self._contexts['key_sig']['global'] = [m_ks, True]
+            # self._global_keysig = [m_ks, True]
     
     def _create_staffdef(self, element):
         staffnum = element.attribute_by_name('n').value
@@ -393,7 +424,7 @@ class MeiConverter(object):
             # we have a header staffdef. Assume the beginning of the file
             sectionnum = "0"
         else:
-            sectionnum = dict(self._section_registry)[section]
+            sectionnum = self._contexts['section'][section]
         staff_address = "{0}.{1}".format(sectionnum, staffnum)
         
         
@@ -406,36 +437,25 @@ class MeiConverter(object):
         # not this object is new and should be put in a measure.
         # clef
         lg.debug("Creating clef.")
-        m_clef = self._create_clef(element)
-        self._contexts['clef'][staffnum] = [m_clef, True]
-        # self._global_clef = [m_clef, True]
-        # self._clef_registry.append((staff_address, [m_clef, True]))
+        if element.has_attribute('clef.line') and element.has_attribute('clef.shape'):
+            m_clef = self._create_clef(element)
+            self._contexts['clef'][staffnum] = [m_clef, True]
 
         # keysig
         lg.debug("Creating keysig")
-        m_ks = self._create_keysig(element)
-        self._contexts['key_sig'][staffnum] = [m_ks, True]
-        # self._global_keysig = [m_ks, True]
-        # self._key_sig_registry.append((staff_address, [m_ks, True]))
+        if element.has_attribute('key.sig'):
+            m_ks = self._create_keysig(element)
+            self._contexts['key_sig'][staffnum] = [m_ks, True]
 
         # time sig
-        lg.debug("Creating timesig")
-        m_ts = self._create_timesig(element)
-        self._global_timesig = [m_ts, True]
-        self._time_sig_registry.append((staff_address, [m_ts, True]))
+        if element.has_attribute('meter.count') and element.has_attribute('meter.unit'):
+            lg.debug("Creating timesig")
+            m_ts = self._create_timesig(element)
+            self._contexts['time_sig'][staffnum] = [m_ts, True]
 
     def _create_clef(self, element):
-        if element.has_attribute('clef.line'):
-            cl = int(element.attribute_by_name('clef.line').value)
-            self._cl = cl
-        else:
-            cl = self._cl
-
-        if element.has_attribute('clef.shape'):
-            cs = element.attribute_by_name('clef.shape').value
-            self._cs = cs
-        else:
-            cs = self._cs
+        cl = int(element.attribute_by_name('clef.line').value)
+        cs = element.attribute_by_name('clef.shape').value
         
         octavechg = 0
         if element.has_attribute('clef.dis'):
@@ -447,32 +467,16 @@ class MeiConverter(object):
             if cdp == 'below':
                 octavechg = -(octavechg)
                 
-        # lg.debug(element)
-        # lg.debug("{0} and {1}".format(cs, cl))
         return clef.standardClefFromXN("{0}{1}".format(cs, cl))
     
     def _create_keysig(self, element):
-        if element.has_attribute('key.sig'):
-            ks = element.attribute_by_name('key.sig').value
-            self._ks = ks
-        else:
-            ks = self._ks
+        ks = element.attribute_by_name('key.sig').value
         return key.KeySignature(self._keysig_converter(ks))
     
     def _create_timesig(self, element):
         m_ts = meter.TimeSignature()
-        if element.has_attribute('meter.count'):
-            mc = element.attribute_by_name('meter.count').value
-            self._mc = mc
-        else:
-            mc = self._mc
-            
-        if element.has_attribute('meter.unit'):
-            mu = element.attribute_by_name('meter.unit').value
-            self._mu = mu
-        else:
-            mu = self._mu
-        
+        mc = element.attribute_by_name('meter.count').value
+        mu = element.attribute_by_name('meter.unit').value
         m_ts.load("{0}/{1}".format(mc, mu))
         return m_ts
     
@@ -488,13 +492,9 @@ class MeiConverter(object):
     def _create_clefchange(self, element):
         if element.has_attribute('shape'):
             cs = element.attribute_by_name('shape').value
-        else:
-            cs = self._cs
-        
+
         if element.has_attribute('line'):
             cl = int(element.attribute_by_name('line').value)
-        else:
-            cl = self._cl
         
         octavechg = 0
         if element.has_attribute('dis'):
@@ -525,7 +525,7 @@ class MeiConverter(object):
         
         for member in tupletmembers:
             # either a note or a rest for now.
-            m_nr = dict(self._nr_registry)[member.id]
+            m_nr = self._contexts['note_rest'][member.id]
             m_nr.duration.appendTuplet(duration.Tuplet(num, numbase, m_nr.duration.type))
             
             
