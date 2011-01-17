@@ -264,6 +264,10 @@ class MeiConverter(object):
                 n = self._create_note(element)
                 self._contexts['note_rest'][element.id] = n
                 
+                if element.has_attribute('stem.dir'):
+                    lg.debug("Setting stem direction.")
+                    n.stemDirection = element.attribute_by_name('stem.dir')
+                
                 if element.ancestor_by_name('chord'):
                     # set the chord context and add the note.
                     # since a chord only needs a pitch name, we don't have 
@@ -350,13 +354,30 @@ class MeiConverter(object):
         lg.debug(" ======== Third Pass =========")
         for sect,snum in self._contexts['sections'].iteritems():
             for stnum, staff in self._contexts['staves'].iteritems():
+                lg.debug("Measure offsets: {0}".format(staff.offsetMap))
+                
+                oset = 0
+                vdur = 0
                 for mnum, meas in sorted(self._contexts['measures'][stnum].iteritems()):
                     # meas.makeBeams()
+                    # meas.makeAccidentals()
                     for vnum, voic in sorted(self._contexts['voices'][stnum][mnum].iteritems()):
                         # voic.makeRests()
-                        # voic.makeAccidentals()
-                        voic.makeTupletBrackets()
-        
+                        # voic.makeTupletBrackets()
+                        # get the longest voice duration in the measure.
+                        if voic.duration.quarterLength > vdur:
+                            vdur = voic.duration.quarterLength
+                    
+                    if oset == 0:
+                        meas.offset = oset
+                        oset = 1
+                        lg.debug('oset is now: {0}'.format(oset))
+                    else:
+                        meas.offset = oset
+                        oset = oset + vdur
+                        lg.debug('oset is now: {0}'.format(oset))
+                    
+                    
     # ===================
     def _create_note(self, element):
         # lg.debug("Creating a note from {0}".format(element.id))
