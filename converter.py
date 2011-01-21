@@ -174,26 +174,39 @@ class MeiConverter(object):
                     clf = self._contexts['clef'][self._contexts['staff_num']]
                 except KeyError:
                     clf = self._contexts['clef']['global']
-                    
+                
                 try:
                     keysig = self._contexts['key_sig'][self._contexts['staff_num']]
                 except KeyError:
                     keysig = self._contexts['key_sig']['global']
-
+                
                 try:
                     timesig = self._contexts['time_sig'][self._contexts['staff_num']]
                 except KeyError:
                     timesig = self._contexts['time_sig']['global']
                 
                 m = self._contexts['measures'][self._contexts['staff_num']][self._contexts['measure_num']]
-                m.clef = clf[0]
-                m.clefIsNew = True
-                    
-                m.keySignature = keysig[0]
-                m.keyIsNew = True
                 
-                m.timeSignature = timesig[0]
-                m.timeSignatureIsNew = True
+                if clf[1] is True:
+                    m.clef = clf[0]
+                    m.clefIsNew = True
+                    clf[1] = False
+                else:
+                    m.clefIsNew = False
+                    
+                if keysig[1] is True:
+                    m.keySignature = keysig[0]
+                    m.keyIsNew = True
+                    keysig[1] = False
+                else:
+                    m.keyIsNew = False
+                
+                if timesig[1] is True:
+                    m.timeSignature = timesig[0]
+                    m.timeSignatureIsNew = True
+                    timesig[1] = False
+                else:
+                    m.timeSignatureIsNew = False
                 
                 self._contexts['staff'].insert(0, self._contexts['measures'][self._contexts['staff_num']][self._contexts['measure_num']])
                 
@@ -330,7 +343,11 @@ class MeiConverter(object):
                 
             elif element.name == "mrest":
                 # create a full measure rest
-                d = self._contexts['measures'][self._contexts['staff_num']][self._contexts['measure_num']].duration
+                try:
+                    d = self._contexts['time_sig'][self._contexts['staff_num']][0].barDuration
+                except KeyError:
+                    d = self._contexts['time_sig']['global'][0].barDuration
+                    
                 r = self._create_mrest(element)
                 r.duration = d
                 self._contexts['voices'][self._contexts['staff_num']][self._contexts['measure_num']][self._contexts['voice_num']].append(r)
@@ -366,10 +383,9 @@ class MeiConverter(object):
                     meas = self._contexts['measures'][stnum][mnum]
                     lg.debug("Measure Number: {0}".format(meas.number))
                     # meas.makeBeams()
-                    # meas.makeAccidentals()
+                    meas.makeAccidentals()
                     for vnum, voic in sorted(self._contexts['voices'][stnum][mnum].iteritems()):
-                        # voic.makeRests()
-                        # voic.makeTupletBrackets()
+                        voic.makeTupletBrackets()
                         # get the longest voice duration in the measure.
                         if voic.duration.quarterLength > vdur:
                             vdur = voic.duration.quarterLength
@@ -467,7 +483,9 @@ class MeiConverter(object):
         if element.has_attribute('key.sig'):
             m_ks = self._create_keysig(element)
             self._contexts['key_sig']['global'] = [m_ks, True]
-            # self._global_keysig = [m_ks, True]
+            # force all staves to reset their key signatures.
+            for k,v in self._contexts['key_sig'].iteritems():
+                self._contexts['key_sig'][k] = [m_ks, True]
     
     def _create_staffdef(self, element):
         staffnum = element.attribute_by_name('n').value
