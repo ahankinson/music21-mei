@@ -353,12 +353,18 @@ class MeiConverter(object):
         
         lg.debug(" ======== Third Pass =========")
         for sect,snum in self._contexts['sections'].iteritems():
-            for stnum, staff in self._contexts['staves'].iteritems():
-                lg.debug("Measure offsets: {0}".format(staff.offsetMap))
+            lg.debug("Section Number: {0}".format(snum))
+            sorted_staff = sorted(self._contexts['staves'], key=int)
+            for stnum in sorted_staff:
+                staff = self._contexts['staves'][stnum]
+                lg.debug("Staff Number: {0}".format(stnum))
                 
                 oset = 0
                 vdur = 0
-                for mnum, meas in sorted(self._contexts['measures'][stnum].iteritems()):
+                sorted_meas = sorted(self._contexts['measures'][stnum], key=int)
+                for mnum in sorted_meas:
+                    meas = self._contexts['measures'][stnum][mnum]
+                    lg.debug("Measure Number: {0}".format(meas.number))
                     # meas.makeBeams()
                     # meas.makeAccidentals()
                     for vnum, voic in sorted(self._contexts['voices'][stnum][mnum].iteritems()):
