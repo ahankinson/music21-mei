@@ -13,6 +13,7 @@ from music21 import dynamics
 from music21 import expressions
 from music21 import tie
 from music21 import clef
+from music21 import interval
 
 import types
 import logging
@@ -359,14 +360,52 @@ class MeiConverter(object):
                 m.clef = clf
                 m.clefIsNew = True
                 self._contexts['clef'][self._contexts['staff_num']] = [clf, True]
+                
+            elif element.name == "mordent":
+                m_mordent = self._create_mordent(element)
+                
+                # we need the key signature to figure out how to realize
+                # this mordent - either half or whole step.
+                key_scale = self._contexts['key_sig']['global'][0].getScale()
+                
+                # figure out where to attach this thing.
+                staff = self._contexts['staves'][element.staff]
+                mnum = int(element.ancestor_by_name('measure').measure_number)
+                
+                if isinstance(m_mordent, expressions.InvertedMordent):
+                    direction = 'descending'
+                else:
+                    direction = 'ascending'
+                    
+                for v in staff.measure(mnum).voices:
+                    # mei tstamps are 1-based; m21 offsets are 0 based
+                    e_oset = int(element.tstamp) - 1. # make this a float.
+                    events = v.getElementsByOffset(e_oset)
+                    
+                    for event in events:
+                        if not isinstance(event, note.Note):
+                            continue
+                        othernote = key_scale.next(event, direction=direction)
+                        ival = interval.notesToInterval(othernote, event)
+                        lg.debug('The interval is: {0}'.format(ival))
+                        m_mordent.size = ival
+                        event.expressions.append(m_mordent)
+
+            elif element.name == "fermata":
+                pass
+                
         
-        # second pass - this deals with spanning elements - slurs, tuplets, etc.
+        # second pass - this deals with spanning elements, or elements
+        # that need a fully constructed structure to work with.
         lg.debug(" ======== Second Pass ========")
         for element in self.__flatten:
             if element.name == "tupletspan":
                 self._create_tupletspan(element)
+
             elif element.name == "slur":
                 pass
+                
+                        
         
         lg.debug(" ======== Third Pass =========")
         for sect,snum in self._contexts['sections'].iteritems():
@@ -598,7 +637,18 @@ class MeiConverter(object):
             # either a note or a rest for now.
             m_nr = self._contexts['note_rest'][member.id]
             m_nr.duration.appendTuplet(duration.Tuplet(num, numbase, m_nr.duration.type))
-            
+    
+    def _create_mordent(self, element):
+        if element.has_attribute('form'):
+            if element.attribute_by_name('form').value == 'inv':
+                m_mordent = expressions.InvertedMordent()
+            else:
+                m_mordent = expressions.Mordent()
+        else:
+            # we'll just assume that if no form is specified 
+            # it is a regular mordent.
+            m_mordent = expressions.Mordent()
+        return m_mordent
             
         
     # =============================
