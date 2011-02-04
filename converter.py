@@ -360,8 +360,7 @@ class MeiConverter(object):
                 m.clef = clf
                 m.clefIsNew = True
                 self._contexts['clef'][self._contexts['staff_num']] = [clf, True]
-            
-            # this code suffers from some serious performance issues.
+                
             elif element.name == "mordent":
                 m_mordent = self._create_mordent(element)
                 
